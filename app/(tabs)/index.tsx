@@ -11,8 +11,6 @@ import Animated, {
   Extrapolation 
 } from 'react-native-reanimated';
 
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
 import { Fonts } from '@/constants/theme';
 import { SearchBar } from '@/components/SearchBar';
 import { getScreenshots, ScreenshotEntry } from '@/services/Storage';
@@ -139,7 +137,7 @@ export default function GalleryScreen() {
   );
 
   return (
-    <ThemedView style={styles.container}>
+    <View style={styles.container}>
       <Animated.View style={[styles.header, headerAnimatedStyle]}>
         <Animated.Text style={[styles.headerTitle, titleAnimatedStyle]}>Gallery</Animated.Text>
       </Animated.View>
@@ -167,7 +165,7 @@ export default function GalleryScreen() {
       >
         <SearchBar value={searchQuery} onChangeText={setSearchQuery} />
       </KeyboardAvoidingView>
-    </ThemedView>
+    </View>
   );
 }
 
@@ -180,7 +178,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     justifyContent: 'flex-end',
     paddingBottom: 15,
-    backgroundColor: '#000000ff', // Match theme background
+    backgroundColor: '#703a3a37', // Match theme background
     zIndex: 10,
   },
   headerTitle: {

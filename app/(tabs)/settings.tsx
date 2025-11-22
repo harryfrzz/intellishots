@@ -1,7 +1,5 @@
-import { StyleSheet, Switch, TouchableOpacity } from 'react-native';
+import { StyleSheet, Switch, TouchableOpacity, View, Text } from 'react-native';
 
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
@@ -10,18 +8,18 @@ export default function SettingsScreen() {
   const colorScheme = useColorScheme();
 
   return (
-    <ThemedView style={styles.container}>
-      <ThemedView style={styles.header}>
-        <ThemedText type="title">Settings</ThemedText>
-      </ThemedView>
+    <View style={styles.container}>
+      <View style={styles.header}>
+        <Text>Settings</Text>
+      </View>
 
-      <ThemedView style={styles.section}>
-        <ThemedText type="subtitle" style={styles.sectionTitle}>General</ThemedText>
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>General</Text>
         
         <TouchableOpacity style={styles.item}>
           <View style={styles.itemLeft}>
             <IconSymbol name="moon.fill" size={24} color={Colors[colorScheme ?? 'light'].text} />
-            <ThemedText style={styles.itemText}>Dark Mode</ThemedText>
+            <Text style={styles.itemText}>Dark Mode</Text>
           </View>
           <Switch value={colorScheme === 'dark'} disabled />
         </TouchableOpacity>
@@ -29,27 +27,25 @@ export default function SettingsScreen() {
         <TouchableOpacity style={styles.item}>
           <View style={styles.itemLeft}>
             <IconSymbol name="bell.fill" size={24} color={Colors[colorScheme ?? 'light'].text} />
-            <ThemedText style={styles.itemText}>Notifications</ThemedText>
+            <Text style={styles.itemText}>Notifications</Text>
           </View>
           <IconSymbol name="chevron.right" size={20} color="gray" />
         </TouchableOpacity>
-      </ThemedView>
+      </View>
 
-      <ThemedView style={styles.section}>
-        <ThemedText type="subtitle" style={styles.sectionTitle}>About</ThemedText>
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>About</Text>
         <TouchableOpacity style={styles.item}>
           <View style={styles.itemLeft}>
             <IconSymbol name="info.circle.fill" size={24} color={Colors[colorScheme ?? 'light'].text} />
-            <ThemedText style={styles.itemText}>Version</ThemedText>
+            <Text style={styles.itemText}>Version</Text>
           </View>
-          <ThemedText style={styles.versionText}>1.0.0</ThemedText>
+          <Text style={styles.versionText}>1.0.0</Text>
         </TouchableOpacity>
-      </ThemedView>
-    </ThemedView>
+      </View>
+    </View>
   );
 }
-
-import { View } from 'react-native';
 
 const styles = StyleSheet.create({
   container: {

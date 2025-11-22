@@ -1,9 +1,8 @@
-import { View, StyleSheet, TouchableOpacity, Platform } from 'react-native';
+import { View, StyleSheet, TouchableOpacity, Platform, Text } from 'react-native';
 import { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { IconSymbol } from './ui/icon-symbol';
 import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
-import { ThemedText } from './themed-text';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export function CustomTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
@@ -48,9 +47,9 @@ export function CustomTabBar({ state, descriptors, navigation }: BottomTabBarPro
                   color={isFocused ? '#fff' : inactiveColor}
                 />
               </View>
-              <ThemedText style={[styles.label, { color: isFocused ? activeColor : inactiveColor }]}>
+              <Text style={[styles.label, { color: isFocused ? activeColor : inactiveColor }]}>
                 {label}
-              </ThemedText>
+              </Text>
             </TouchableOpacity>
           );
         })}
