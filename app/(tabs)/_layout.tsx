@@ -1,27 +1,29 @@
 import { Tabs } from 'expo-router';
 import React from 'react';
-
-import { CustomTabBar } from '@/components/CustomTabBar';
+import { StatusBar } from 'expo-status-bar';
 
 export default function TabLayout() {
   return (
-    <Tabs
-      tabBar={(props) => <CustomTabBar {...props} />}
-      screenOptions={{
-        headerShown: false,
-      }}>
-      <Tabs.Screen
-        name="index"
-        options={{
-          title: 'Home',
-        }}
-      />
-      <Tabs.Screen
-        name="settings"
-        options={{
-          title: 'Settings',
-        }}
-      />
-    </Tabs>
+    <>
+      <StatusBar style="light" />
+      <Tabs
+        screenOptions={{
+          headerShown: false,
+          tabBarStyle: { display: 'none' },
+        }}>
+        <Tabs.Screen
+          name="index"
+          options={{
+            title: 'Home',
+          }}
+        />
+        <Tabs.Screen
+          name="settings"
+          options={{
+            title: 'Settings',
+          }}
+        />
+      </Tabs>
+    </>
   );
 }
