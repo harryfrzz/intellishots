@@ -1,112 +1,249 @@
 import { Image } from 'expo-image';
-import { Platform, StyleSheet } from 'react-native';
+import { StyleSheet, FlatList, TouchableOpacity, ActivityIndicator, Alert, View } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import * as MediaLibrary from 'expo-media-library';
+import * as FileSystem from 'expo-file-system/legacy';
 
-import { Collapsible } from '@/components/ui/collapsible';
-import { ExternalLink } from '@/components/external-link';
-import ParallaxScrollView from '@/components/parallax-scroll-view';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Fonts } from '@/constants/theme';
+import { getScreenshots, addScreenshot, ScreenshotEntry, getScreenshot } from '@/services/Storage';
+import { summarizeImage } from '@/services/LocalAI';
+import { useFocusEffect } from 'expo-router';
 
-export default function TabTwoScreen() {
-  return (
-    <ParallaxScrollView
-      headerBackgroundColor={{ light: '#D0D0D0', dark: '#353636' }}
-      headerImage={
-        <IconSymbol
-          size={310}
-          color="#808080"
-          name="chevron.left.forwardslash.chevron.right"
-          style={styles.headerImage}
-        />
-      }>
-      <ThemedView style={styles.titleContainer}>
-        <ThemedText
-          type="title"
-          style={{
-            fontFamily: Fonts.rounded,
-          }}>
-          Explore
-        </ThemedText>
+export default function SmartGalleryScreen() {
+  const [assets, setAssets] = useState<MediaLibrary.Asset[]>([]);
+  const [permissionResponse, requestPermission] = MediaLibrary.usePermissions();
+  const [summaries, setSummaries] = useState<Record<string, ScreenshotEntry>>({});
+  const [loadingIds, setLoadingIds] = useState<Set<string>>(new Set());
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+
+  // Load latest screenshots and existing summaries
+  const loadData = async () => {
+    if (permissionResponse?.status !== 'granted') {
+      await requestPermission();
+    }
+
+    const { assets: fetchedAssets } = await MediaLibrary.getAssetsAsync({
+      first: 20,
+      sortBy: [MediaLibrary.SortBy.creationTime],
+      mediaType: [MediaLibrary.MediaType.photo],
+    });
+    setAssets(fetchedAssets);
+
+    // Check DB for existing summaries
+    const dbSummaries: Record<string, ScreenshotEntry> = {};
+    const allStored = getScreenshots();
+    allStored.forEach(entry => {
+      dbSummaries[entry.id] = entry;
+    });
+    setSummaries(dbSummaries);
+  };
+
+  useFocusEffect(
+    React.useCallback(() => {
+      loadData();
+    }, [permissionResponse])
+  );
+
+  const toggleExpand = (id: string) => {
+    const newExpanded = new Set(expandedIds);
+    if (newExpanded.has(id)) {
+      newExpanded.delete(id);
+    } else {
+      newExpanded.add(id);
+    }
+    setExpandedIds(newExpanded);
+  };
+
+  const handleSummarize = async (asset: MediaLibrary.Asset) => {
+    setLoadingIds(prev => new Set(prev).add(asset.id));
+    
+    try {
+      // 1. Prepare file path (copy to cache if needed to ensure access)
+      const fileName = asset.filename || `screenshot_${Date.now()}.jpg`;
+      const localUri = `${FileSystem.cacheDirectory}${fileName}`;
+      
+      // Always copy to ensure we have a stable local file for the model
+      const fileInfo = await FileSystem.getInfoAsync(localUri);
+      if (fileInfo.exists) {
+        await FileSystem.deleteAsync(localUri, { idempotent: true });
+      }
+      
+      await FileSystem.copyAsync({
+          from: asset.uri,
+          to: localUri
+      });
+
+      // 2. Generate Summary
+      const summaryText = await summarizeImage(localUri);
+
+      // 3. Save to DB
+      const newEntry: ScreenshotEntry = {
+        id: asset.id,
+        localUri: localUri,
+        summary: summaryText,
+        timestamp: asset.creationTime,
+      };
+      
+      addScreenshot(newEntry);
+      
+      // 4. Update State
+      setSummaries(prev => ({ ...prev, [asset.id]: newEntry }));
+    } catch (error) {
+      console.error("Summarization failed:", error);
+      Alert.alert("Error", "Failed to summarize image.");
+    } finally {
+      setLoadingIds(prev => {
+        const next = new Set(prev);
+        next.delete(asset.id);
+        return next;
+      });
+    }
+  };
+
+  const renderItem = ({ item }: { item: MediaLibrary.Asset }) => {
+    const isExpanded = expandedIds.has(item.id);
+    const summaryEntry = summaries[item.id];
+    const isLoading = loadingIds.has(item.id);
+
+    return (
+      <ThemedView style={styles.card}>
+        <TouchableOpacity onPress={() => toggleExpand(item.id)} activeOpacity={0.8}>
+          <Image source={{ uri: item.uri }} style={styles.image} contentFit="cover" />
+        </TouchableOpacity>
+
+        {isExpanded && (
+          <ThemedView style={styles.detailsContainer}>
+            <View style={styles.metaRow}>
+              <ThemedText style={styles.dateText}>
+                {new Date(item.creationTime).toLocaleDateString()}
+              </ThemedText>
+              {summaryEntry && (
+                <View style={styles.badge}>
+                  <ThemedText style={styles.badgeText}>Smart Summary</ThemedText>
+                </View>
+              )}
+            </View>
+
+            {isLoading ? (
+              <View style={styles.loadingContainer}>
+                <ActivityIndicator size="small" color="#0a7ea4" />
+                <ThemedText style={styles.loadingText}>Analyzing screenshot...</ThemedText>
+              </View>
+            ) : summaryEntry ? (
+              <ThemedText style={styles.summaryText}>{summaryEntry.summary}</ThemedText>
+            ) : (
+              <TouchableOpacity 
+                style={styles.summarizeButton} 
+                onPress={() => handleSummarize(item)}
+              >
+                <IconSymbol name="sparkles" size={20} color="white" />
+                <ThemedText style={styles.buttonText}>Summarize with AI</ThemedText>
+              </TouchableOpacity>
+            )}
+          </ThemedView>
+        )}
       </ThemedView>
-      <ThemedText>This app includes example code to help you get started.</ThemedText>
-      <Collapsible title="File-based routing">
-        <ThemedText>
-          This app has two screens:{' '}
-          <ThemedText type="defaultSemiBold">app/(tabs)/index.tsx</ThemedText> and{' '}
-          <ThemedText type="defaultSemiBold">app/(tabs)/explore.tsx</ThemedText>
-        </ThemedText>
-        <ThemedText>
-          The layout file in <ThemedText type="defaultSemiBold">app/(tabs)/_layout.tsx</ThemedText>{' '}
-          sets up the tab navigator.
-        </ThemedText>
-        <ExternalLink href="https://docs.expo.dev/router/introduction">
-          <ThemedText type="link">Learn more</ThemedText>
-        </ExternalLink>
-      </Collapsible>
-      <Collapsible title="Android, iOS, and web support">
-        <ThemedText>
-          You can open this project on Android, iOS, and the web. To open the web version, press{' '}
-          <ThemedText type="defaultSemiBold">w</ThemedText> in the terminal running this project.
-        </ThemedText>
-      </Collapsible>
-      <Collapsible title="Images">
-        <ThemedText>
-          For static images, you can use the <ThemedText type="defaultSemiBold">@2x</ThemedText> and{' '}
-          <ThemedText type="defaultSemiBold">@3x</ThemedText> suffixes to provide files for
-          different screen densities
-        </ThemedText>
-        <Image
-          source={require('@/assets/images/react-logo.png')}
-          style={{ width: 100, height: 100, alignSelf: 'center' }}
-        />
-        <ExternalLink href="https://reactnative.dev/docs/images">
-          <ThemedText type="link">Learn more</ThemedText>
-        </ExternalLink>
-      </Collapsible>
-      <Collapsible title="Light and dark mode components">
-        <ThemedText>
-          This template has light and dark mode support. The{' '}
-          <ThemedText type="defaultSemiBold">useColorScheme()</ThemedText> hook lets you inspect
-          what the user&apos;s current color scheme is, and so you can adjust UI colors accordingly.
-        </ThemedText>
-        <ExternalLink href="https://docs.expo.dev/develop/user-interface/color-themes/">
-          <ThemedText type="link">Learn more</ThemedText>
-        </ExternalLink>
-      </Collapsible>
-      <Collapsible title="Animations">
-        <ThemedText>
-          This template includes an example of an animated component. The{' '}
-          <ThemedText type="defaultSemiBold">components/HelloWave.tsx</ThemedText> component uses
-          the powerful{' '}
-          <ThemedText type="defaultSemiBold" style={{ fontFamily: Fonts.mono }}>
-            react-native-reanimated
-          </ThemedText>{' '}
-          library to create a waving hand animation.
-        </ThemedText>
-        {Platform.select({
-          ios: (
-            <ThemedText>
-              The <ThemedText type="defaultSemiBold">components/ParallaxScrollView.tsx</ThemedText>{' '}
-              component provides a parallax effect for the header image.
-            </ThemedText>
-          ),
-        })}
-      </Collapsible>
-    </ParallaxScrollView>
+    );
+  };
+
+  return (
+    <ThemedView style={styles.container}>
+       <View style={styles.header}>
+        <ThemedText type="title" style={styles.headerTitle}>Smart Gallery</ThemedText>
+       </View>
+      <FlatList
+        data={assets}
+        renderItem={renderItem}
+        keyExtractor={item => item.id}
+        contentContainerStyle={styles.listContent}
+      />
+    </ThemedView>
   );
 }
 
 const styles = StyleSheet.create({
-  headerImage: {
-    color: '#808080',
-    bottom: -90,
-    left: -35,
-    position: 'absolute',
+  container: {
+    flex: 1,
   },
-  titleContainer: {
+  header: {
+    paddingTop: 60,
+    paddingHorizontal: 20,
+    paddingBottom: 20,
+  },
+  headerTitle: {
+    fontFamily: Fonts.rounded,
+  },
+  listContent: {
+    padding: 16,
+    gap: 16,
+  },
+  card: {
+    borderRadius: 16,
+    overflow: 'hidden',
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#333', // Subtle border for dark mode contrast
+  },
+  image: {
+    width: '100%',
+    height: 200,
+  },
+  detailsContainer: {
+    padding: 16,
+    backgroundColor: 'rgba(50, 50, 50, 0.3)', // Slightly lighter background for details
+  },
+  metaRow: {
     flexDirection: 'row',
-    gap: 8,
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
   },
+  dateText: {
+    fontSize: 12,
+    opacity: 0.7,
+  },
+  badge: {
+    backgroundColor: '#0a7ea4',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  badgeText: {
+    fontSize: 10,
+    color: 'white',
+    fontWeight: 'bold',
+  },
+  summaryText: {
+    fontSize: 14,
+    lineHeight: 22,
+  },
+  summarizeButton: {
+    backgroundColor: '#0a7ea4',
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginTop: 8,
+  },
+  buttonText: {
+    color: 'white',
+    fontWeight: '600',
+  },
+  loadingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 12,
+    gap: 10,
+  },
+  loadingText: {
+    fontSize: 14,
+    opacity: 0.8,
+  }
 });
