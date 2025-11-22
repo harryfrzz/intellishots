@@ -1,80 +1,111 @@
-import { Image, StyleSheet, Platform, TouchableOpacity } from 'react-native';
-import { useRouter } from 'expo-router';
+import { Image } from 'expo-image';
+import { StyleSheet, View, ScrollView, TouchableOpacity, useWindowDimensions } from 'react-native';
+import React, { useState } from 'react';
+import { useRouter, useFocusEffect } from 'expo-router';
+import * as MediaLibrary from 'expo-media-library';
 
-import { HelloWave } from '@/components/hello-wave';
-import ParallaxScrollView from '@/components/parallax-scroll-view';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
+import { Fonts } from '@/constants/theme';
 
-export default function HomeScreen() {
+export default function GalleryScreen() {
   const router = useRouter();
+  const [assets, setAssets] = useState<MediaLibrary.Asset[]>([]);
+  const [permissionResponse, requestPermission] = MediaLibrary.usePermissions();
+  const { width } = useWindowDimensions();
+  
+  // Calculate column width (subtracting padding)
+  const columnWidth = (width - 48) / 2; 
+
+  const loadData = async () => {
+    if (permissionResponse?.status !== 'granted') {
+      const response = await requestPermission();
+      if (response.status !== 'granted') return;
+    }
+
+    const { assets: fetchedAssets } = await MediaLibrary.getAssetsAsync({
+      first: 50,
+      sortBy: [MediaLibrary.SortBy.creationTime],
+      mediaType: [MediaLibrary.MediaType.photo],
+    });
+    setAssets(fetchedAssets);
+  };
+
+  useFocusEffect(
+    React.useCallback(() => {
+      loadData();
+    }, [permissionResponse])
+  );
+
+  // Split assets into two columns for masonry effect
+  const evenAssets = assets.filter((_, i) => i % 2 === 0);
+  const oddAssets = assets.filter((_, i) => i % 2 !== 0);
+
+  const renderImageCard = (item: MediaLibrary.Asset) => (
+    <TouchableOpacity 
+      key={item.id} 
+      onPress={() => router.push(`/image/${encodeURIComponent(item.id)}`)}
+      activeOpacity={0.8}
+      style={styles.cardWrapper}
+    >
+      <Image 
+        source={{ uri: item.uri }} 
+        style={[styles.image, { width: columnWidth, height: (columnWidth * item.height) / item.width }]} 
+        contentFit="cover"
+      />
+    </TouchableOpacity>
+  );
 
   return (
-    <ParallaxScrollView
-      headerBackgroundColor={{ light: '#A1CEDC', dark: '#1D3D47' }}
-      headerImage={
-        <Image
-          source={require('@/assets/images/partial-react-logo.png')}
-          style={styles.reactLogo}
-        />
-      }>
-      <ThemedView style={styles.titleContainer}>
-        <ThemedText type="title">Welcome to IntelliShots!</ThemedText>
-        <HelloWave />
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Your Smart Screenshot Companion</ThemedText>
-        <ThemedText>
-          IntelliShots uses on-device AI to automatically analyze and summarize your screenshots.
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">How it works</ThemedText>
-        <ThemedText>
-          1. Take a screenshot anywhere on your device.
-        </ThemedText>
-        <ThemedText>
-          2. The app detects it and runs a local Vision Language Model to understand the content.
-        </ThemedText>
-        <ThemedText>
-          3. Check the <ThemedText type="defaultSemiBold">Gallery</ThemedText> tab to see your smart summaries.
-        </ThemedText>
-      </ThemedView>
+    <ThemedView style={styles.container}>
+      <View style={styles.header}>
+        <ThemedText type="title" style={styles.headerTitle}>Gallery</ThemedText>
+      </View>
       
-      <TouchableOpacity style={styles.button} onPress={() => router.push('/explore')}>
-        <ThemedText style={styles.buttonText}>Go to Smart Gallery</ThemedText>
-      </TouchableOpacity>
-    </ParallaxScrollView>
+      <ScrollView contentContainerStyle={styles.scrollContent}>
+        <View style={styles.masonryContainer}>
+          <View style={styles.column}>
+            {evenAssets.map(renderImageCard)}
+          </View>
+          <View style={styles.column}>
+            {oddAssets.map(renderImageCard)}
+          </View>
+        </View>
+      </ScrollView>
+    </ThemedView>
   );
 }
 
 const styles = StyleSheet.create({
-  titleContainer: {
+  container: {
+    flex: 1,
+  },
+  header: {
+    paddingTop: 60,
+    paddingHorizontal: 20,
+    paddingBottom: 10,
+  },
+  headerTitle: {
+    fontFamily: Fonts.rounded,
+  },
+  scrollContent: {
+    paddingHorizontal: 16,
+    paddingBottom: 20,
+  },
+  masonryContainer: {
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
+    gap: 16,
   },
-  stepContainer: {
-    gap: 8,
-    marginBottom: 8,
+  column: {
+    flex: 1,
+    gap: 16,
   },
-  reactLogo: {
-    height: 178,
-    width: 290,
-    bottom: 0,
-    left: 0,
-    position: 'absolute',
+  cardWrapper: {
+    borderRadius: 12,
+    overflow: 'hidden',
+    backgroundColor: '#2a2a2a',
   },
-  button: {
-    backgroundColor: '#0a7ea4',
-    padding: 16,
-    borderRadius: 8,
-    alignItems: 'center',
-    marginTop: 20,
-  },
-  buttonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: 'bold',
+  image: {
+    backgroundColor: '#333',
   },
 });
