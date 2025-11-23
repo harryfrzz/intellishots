@@ -1,23 +1,11 @@
 import { Image } from 'expo-image';
-import { StyleSheet, View, TouchableOpacity, useWindowDimensions, KeyboardAvoidingView, Platform } from 'react-native';
+import { StyleSheet, View, TouchableOpacity, useWindowDimensions, ScrollView, Platform } from 'react-native';
 import React, { useState, useMemo } from 'react';
 import { useRouter, useFocusEffect } from 'expo-router';
 import * as MediaLibrary from 'expo-media-library';
-import Animated, { 
-  useSharedValue, 
-  useAnimatedScrollHandler, 
-  useAnimatedStyle, 
-  interpolate, 
-  Extrapolation 
-} from 'react-native-reanimated';
 
-import { Fonts } from '@/constants/theme';
-import { SearchBar } from '@/components/SearchBar';
 import { getScreenshots, ScreenshotEntry } from '@/services/Storage';
-
-const HEADER_MAX_HEIGHT = 130;
-const HEADER_MIN_HEIGHT = 100;
-const SCROLL_DISTANCE = 50;
+import { ExpandableSearchBar } from '@/components/ExpandableSearchBar';
 
 export default function GalleryScreen() {
   const router = useRouter();
@@ -26,41 +14,6 @@ export default function GalleryScreen() {
   const [searchQuery, setSearchQuery] = useState('');
   const [permissionResponse, requestPermission] = MediaLibrary.usePermissions();
   const { width } = useWindowDimensions();
-  
-  const scrollY = useSharedValue(0);
-
-  const scrollHandler = useAnimatedScrollHandler((event) => {
-    scrollY.value = event.contentOffset.y;
-  });
-
-  const headerAnimatedStyle = useAnimatedStyle(() => {
-    const height = interpolate(
-      scrollY.value,
-      [0, SCROLL_DISTANCE],
-      [HEADER_MAX_HEIGHT, HEADER_MIN_HEIGHT],
-      Extrapolation.CLAMP
-    );
-    return { height };
-  });
-
-  const titleAnimatedStyle = useAnimatedStyle(() => {
-    const fontSize = interpolate(
-      scrollY.value,
-      [0, SCROLL_DISTANCE],
-      [34, 24],
-      Extrapolation.CLAMP
-    );
-    const translateY = interpolate(
-      scrollY.value,
-      [0, SCROLL_DISTANCE],
-      [0, 5], 
-      Extrapolation.CLAMP
-    );
-    return { 
-      fontSize,
-      transform: [{ translateY }]
-    };
-  });
 
   // Calculate column width (subtracting padding)
   const columnWidth = (width - 48) / 2; 
@@ -124,7 +77,7 @@ export default function GalleryScreen() {
   const renderImageCard = (item: MediaLibrary.Asset) => (
     <TouchableOpacity 
       key={item.id} 
-      onPress={() => router.push(`/Home/${encodeURIComponent(item.id)}`)}
+      onPress={() => router.push(`/image/${encodeURIComponent(item.id)}`)}
       activeOpacity={0.8}
       style={styles.cardWrapper}
     >
@@ -138,15 +91,15 @@ export default function GalleryScreen() {
 
   return (
     <View style={styles.container}>
-      <Animated.View style={[styles.header, headerAnimatedStyle]}>
-        <Animated.Text style={[styles.headerTitle, titleAnimatedStyle]}>Gallery</Animated.Text>
-      </Animated.View>
+      <ExpandableSearchBar 
+        title="Gallery"
+        onChangeText={setSearchQuery}
+        onSearch={(text) => console.log('Search triggered:', text)}
+      />
       
-      <Animated.ScrollView 
+      <ScrollView 
         contentContainerStyle={styles.scrollContent} 
         keyboardShouldPersistTaps="handled"
-        onScroll={scrollHandler}
-        scrollEventThrottle={16}
       >
         <View style={styles.masonryContainer}>
           <View style={styles.column}>
@@ -156,15 +109,7 @@ export default function GalleryScreen() {
             {oddAssets.map(renderImageCard)}
           </View>
         </View>
-      </Animated.ScrollView>
-
-      <KeyboardAvoidingView 
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'} 
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
-        style={styles.searchContainer}
-      >
-        <SearchBar value={searchQuery} onChangeText={setSearchQuery} />
-      </KeyboardAvoidingView>
+      </ScrollView>
     </View>
   );
 }
@@ -172,23 +117,11 @@ export default function GalleryScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-  },
-  header: {
-    paddingTop: 10,
-    paddingHorizontal: 20,
-    justifyContent: 'flex-end',
-    paddingBottom: 15,
-    backgroundColor: '#703a3a37', // Match theme background
-    zIndex: 10,
-  },
-  headerTitle: {
-    fontFamily: Fonts.rounded,
-    color: '#ECEDEE', // Match theme text color
-    fontWeight: 'bold',
+    backgroundColor: '#000',
   },
   scrollContent: {
     paddingHorizontal: 16,
-    paddingBottom: 100, // Add space for search bar
+    paddingBottom: 100, // Add space for bottom tab bar
     paddingTop: 10,
   },
   masonryContainer: {
@@ -207,14 +140,4 @@ const styles = StyleSheet.create({
   image: {
     backgroundColor: '#333',
   },
-  searchContainer: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingBottom: 20,
-    zIndex: 20,
-  }
 });

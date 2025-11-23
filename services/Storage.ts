@@ -22,7 +22,7 @@ export const initDB = () => {
 
 export const addScreenshot = (entry: ScreenshotEntry) => {
   db.runSync(
-    'INSERT INTO screenshots (id, localUri, summary, timestamp) VALUES (?, ?, ?, ?)',
+    'INSERT OR REPLACE INTO screenshots (id, localUri, summary, timestamp) VALUES (?, ?, ?, ?)',
     [entry.id, entry.localUri, entry.summary, entry.timestamp]
   );
 };

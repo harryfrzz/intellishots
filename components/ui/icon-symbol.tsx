@@ -20,6 +20,8 @@ const MAPPING = {
   'chevron.right': 'chevron-right',
   'sparkles': 'auto-awesome',
   'magnifyingglass': 'search',
+  'xmark': 'close',
+  'gearshape.fill': 'settings',
 } as IconMapping;
 
 /**
