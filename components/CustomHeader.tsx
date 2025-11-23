@@ -193,9 +193,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   tag: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 10,
     backgroundColor: 'rgba(255,255,255,0.1)', // Adjusted for dark bg
     borderWidth: 1,
     borderColor: 'transparent',

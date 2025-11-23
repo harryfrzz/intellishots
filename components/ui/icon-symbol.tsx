@@ -22,6 +22,9 @@ const MAPPING = {
   'magnifyingglass': 'search',
   'xmark': 'close',
   'gearshape.fill': 'settings',
+  'photo.on.rectangle': 'photo-library',
+  'clock.fill': 'history',
+  'bubble.left.and.bubble.right.fill': 'chat',
 } as IconMapping;
 
 /**
