@@ -1,17 +1,18 @@
 import { Image } from 'expo-image';
-import { StyleSheet, View, TouchableOpacity, useWindowDimensions, ScrollView, Platform } from 'react-native';
+import { StyleSheet, View, TouchableOpacity, useWindowDimensions, ScrollView, Text } from 'react-native';
 import React, { useState, useMemo } from 'react';
 import { useRouter, useFocusEffect } from 'expo-router';
 import * as MediaLibrary from 'expo-media-library';
 
 import { getScreenshots, ScreenshotEntry } from '@/services/Storage';
-import { ExpandableSearchBar } from '@/components/ExpandableSearchBar';
+import { CustomHeader } from '@/components/CustomHeader';
 
 export default function GalleryScreen() {
   const router = useRouter();
   const [assets, setAssets] = useState<MediaLibrary.Asset[]>([]);
   const [summaries, setSummaries] = useState<ScreenshotEntry[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedTag, setSelectedTag] = useState('All');
   const [permissionResponse, requestPermission] = MediaLibrary.usePermissions();
   const { width } = useWindowDimensions();
 
@@ -47,28 +48,34 @@ export default function GalleryScreen() {
   );
 
   const displayedAssets = useMemo(() => {
-    if (!searchQuery.trim()) return assets;
+    let filtered = assets;
 
-    const lowerQuery = searchQuery.toLowerCase();
-    const filteredSummaries = summaries.filter(s => 
-      s.summary && s.summary.toLowerCase().includes(lowerQuery)
-    );
+    // 1. Search Filtering
+    if (searchQuery.trim()) {
+      const lowerQuery = searchQuery.toLowerCase();
+      // Filter based on whether a summary exists and matches the query
+      // This is a join operation in memory basically
+      const matchedIds = new Set(summaries.filter(s => 
+        s.summary && s.summary.toLowerCase().includes(lowerQuery)
+      ).map(s => s.id));
+      
+      // Also potentially filter by existing assets if we just want to search filenames? 
+      // For now, let's assume search is mainly for summaries or filenames.
+      filtered = filtered.filter(a => matchedIds.has(a.id));
+    }
+
+    // 2. Tag Filtering (Mock logic for now as we don't have real tags in DB yet)
+    // In a real app, you'd filter `summaries` based on tag property
+    if (selectedTag !== 'All') {
+      // Placeholder: If 'Text' is selected, maybe filter for summaries containing "text"?
+      // For this demo, we'll just show everything to avoid empty screens, 
+      // or you could implement simple logic like:
+      // if (selectedTag === 'Screenshots') ...
+    }
     
-    // Map ScreenshotEntry to MediaLibrary.Asset shape
-    return filteredSummaries.map(s => ({
-      id: s.id,
-      uri: s.localUri,
-      width: 1000, // Default square aspect ratio for search results
-      height: 1000,
-      creationTime: s.timestamp,
-      mediaType: MediaLibrary.MediaType.photo,
-      filename: 'screenshot.jpg',
-      modificationTime: s.timestamp,
-      duration: 0,
-      albumId: undefined,
-      mediaSubtypes: []
-    } as MediaLibrary.Asset));
-  }, [searchQuery, assets, summaries]);
+    // Map to displayable format (we use assets directly here)
+    return filtered;
+  }, [searchQuery, selectedTag, assets, summaries]);
 
   // Split assets into two columns for masonry effect
   const evenAssets = displayedAssets.filter((_, i) => i % 2 === 0);
@@ -91,10 +98,11 @@ export default function GalleryScreen() {
 
   return (
     <View style={styles.container}>
-      <ExpandableSearchBar 
+      <CustomHeader 
         title="Gallery"
-        onChangeText={setSearchQuery}
-        onSearch={(text) => console.log('Search triggered:', text)}
+        onSearch={setSearchQuery}
+        selectedTag={selectedTag}
+        onSelectTag={setSelectedTag}
       />
       
       <ScrollView 
@@ -136,6 +144,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     overflow: 'hidden',
     backgroundColor: '#2a2a2a',
+    marginBottom: 16,
   },
   image: {
     backgroundColor: '#333',

@@ -4,6 +4,7 @@ import { Image } from 'expo-image';
 import React, { useEffect, useState } from 'react';
 import * as MediaLibrary from 'expo-media-library';
 import * as FileSystem from 'expo-file-system/legacy';
+import Markdown from 'react-native-markdown-display';
 import { getScreenshot, addScreenshot } from '@/services/Storage';
 import { summarizeImage } from '@/services/LocalAI';
 import { Fonts } from '@/constants/theme';
@@ -83,7 +84,7 @@ export default function ImageDetailScreen() {
         <View style={styles.imageContainer}>
           <Image
             source={{ uri: asset.uri }}
-            style={[styles.image, { aspectRatio: asset.width / asset.height }]}
+            style={styles.image}
             contentFit="contain"
           />
         </View>
@@ -104,7 +105,9 @@ export default function ImageDetailScreen() {
           {summary && (
             <View style={styles.summaryContainer}>
               <Text style={styles.summaryTitle}>Summary</Text>
-              <Text style={styles.summaryText}>{summary}</Text>
+              <Markdown style={markdownStyles}>
+                {summary}
+              </Markdown>
             </View>
           )}
         </View>
@@ -127,11 +130,13 @@ const styles = StyleSheet.create({
   },
   imageContainer: {
     width: '100%',
-    backgroundColor: '#1a1a1a',
-    minHeight: 200,
+    height: 500, // Fixed smaller height
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   image: {
     width: '100%',
+    height: '100%',
   },
   controls: {
     padding: 20,
@@ -165,9 +170,28 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     fontFamily: Fonts.rounded,
   },
-  summaryText: {
+});
+
+const markdownStyles = StyleSheet.create({
+  body: {
     color: '#ccc',
     fontSize: 16,
     lineHeight: 24,
+  },
+  heading1: {
+    color: '#fff',
+    fontWeight: 'bold',
+  },
+  heading2: {
+    color: '#fff',
+    fontWeight: 'bold',
+  },
+  code_inline: {
+    backgroundColor: '#333',
+    color: '#fff',
+  },
+  code_block: {
+    backgroundColor: '#333',
+    borderColor: '#444',
   },
 });
