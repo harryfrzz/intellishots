@@ -1,11 +1,15 @@
 import { Image } from 'expo-image';
-import { StyleSheet, View, TouchableOpacity, useWindowDimensions, ScrollView, Text } from 'react-native';
+import { StyleSheet, View, TouchableOpacity, useWindowDimensions, ScrollView } from 'react-native';
 import React, { useState, useMemo } from 'react';
 import { useRouter, useFocusEffect } from 'expo-router';
 import * as MediaLibrary from 'expo-media-library';
+import Animated from 'react-native-reanimated'; // 1. Import Reanimated
 
 import { getScreenshots, ScreenshotEntry } from '@/services/Storage';
 import { CustomHeader } from '@/components/CustomHeader';
+
+// 2. Create Animated Image Component
+const AnimatedImage = Animated.createAnimatedComponent(Image) as React.ComponentType<any>;
 
 export default function GalleryScreen() {
   const router = useRouter();
@@ -16,7 +20,6 @@ export default function GalleryScreen() {
   const [permissionResponse, requestPermission] = MediaLibrary.usePermissions();
   const { width } = useWindowDimensions();
 
-  // Calculate column width (subtracting padding)
   const columnWidth = (width - 48) / 2; 
 
   const loadData = async () => {
@@ -32,7 +35,6 @@ export default function GalleryScreen() {
     });
     setAssets(fetchedAssets);
 
-    // Load summaries
     try {
       const storedSummaries = getScreenshots();
       setSummaries(storedSummaries);
@@ -49,53 +51,44 @@ export default function GalleryScreen() {
 
   const displayedAssets = useMemo(() => {
     let filtered = assets;
-
-    // 1. Search Filtering
     if (searchQuery.trim()) {
       const lowerQuery = searchQuery.toLowerCase();
-      // Filter based on whether a summary exists and matches the query
-      // This is a join operation in memory basically
       const matchedIds = new Set(summaries.filter(s => 
         s.summary && s.summary.toLowerCase().includes(lowerQuery)
       ).map(s => s.id));
-      
-      // Also potentially filter by existing assets if we just want to search filenames? 
-      // For now, let's assume search is mainly for summaries or filenames.
       filtered = filtered.filter(a => matchedIds.has(a.id));
     }
-
-    // 2. Tag Filtering (Mock logic for now as we don't have real tags in DB yet)
-    // In a real app, you'd filter `summaries` based on tag property
-    if (selectedTag !== 'All') {
-      // Placeholder: If 'Text' is selected, maybe filter for summaries containing "text"?
-      // For this demo, we'll just show everything to avoid empty screens, 
-      // or you could implement simple logic like:
-      // if (selectedTag === 'Screenshots') ...
-    }
-    
-    // Map to displayable format (we use assets directly here)
     return filtered;
   }, [searchQuery, selectedTag, assets, summaries]);
 
-  // Split assets into two columns for masonry effect
   const evenAssets = displayedAssets.filter((_, i) => i % 2 === 0);
   const oddAssets = displayedAssets.filter((_, i) => i % 2 !== 0);
 
-  const renderImageCard = (item: MediaLibrary.Asset) => (
-    <TouchableOpacity 
-      key={item.id} 
-      onPress={() => router.push(`/image/${encodeURIComponent(item.id)}`)}
-      activeOpacity={0.8}
-      style={styles.cardWrapper}
-    >
-      <Image 
-        source={{ uri: item.uri }} 
-        style={[styles.image, { width: columnWidth, height: (columnWidth * item.height) / item.width }]} 
-        contentFit="cover"
-      />
-    </TouchableOpacity>
-  );
-
+const renderImageCard = (item: MediaLibrary.Asset) => (
+  <TouchableOpacity 
+    key={item.id} 
+    onPress={() => {
+      router.push({
+        pathname: "/image/[id]", // <--- FIX: Use the literal route name
+        params: { 
+          id: item.id,           // <--- FIX: Move the dynamic ID here
+          uri: item.uri,
+          width: item.width,
+          height: item.height
+        }
+      });
+    }}
+    activeOpacity={0.8}
+    style={styles.cardWrapper}
+  >
+    <AnimatedImage 
+      sharedTransitionTag={`image-${item.id}`}
+      source={{ uri: item.uri }} 
+      style={[styles.image, { width: columnWidth, height: (columnWidth * item.height) / item.width }]} 
+      contentFit="cover"
+    />
+  </TouchableOpacity>
+);
   return (
     <View style={styles.container}>
       <CustomHeader 
@@ -129,7 +122,7 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingHorizontal: 16,
-    paddingBottom: 100, // Add space for bottom tab bar
+    paddingBottom: 100,
     paddingTop: 10,
   },
   masonryContainer: {

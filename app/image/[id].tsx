@@ -5,12 +5,19 @@ import React, { useEffect, useState } from 'react';
 import * as MediaLibrary from 'expo-media-library';
 import * as FileSystem from 'expo-file-system/legacy';
 import Markdown from 'react-native-markdown-display';
+import Animated, { FadeInDown } from 'react-native-reanimated'; // 1. Import Reanimated
+
 import { getScreenshot, addScreenshot } from '@/services/Storage';
 import { summarizeImage } from '@/services/LocalAI';
 import { Fonts } from '@/constants/theme';
 
+// 2. Create Animated Image Component
+const AnimatedImage = Animated.createAnimatedComponent(Image) as React.ComponentType<any>;
+
 export default function ImageDetailScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  // 3. Get params passed from Gallery
+  const { id, uri } = useLocalSearchParams<{ id: string; uri: string }>();
+  
   const [asset, setAsset] = useState<MediaLibrary.AssetInfo | null>(null);
   const [summary, setSummary] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -36,15 +43,17 @@ export default function ImageDetailScreen() {
   };
 
   const handleGenerateSummary = async () => {
-    if (!asset) return;
+    // Use the passed URI if asset isn't fully loaded yet, though usually it is by now
+    const currentUri = asset?.uri || uri;
+    if (!currentUri) return;
+    
     setLoading(true);
     try {
-      // Copy to cache to ensure consistent file access for the model
-      const fileName = asset.filename || `screenshot_${Date.now()}.jpg`;
+      const fileName = `screenshot_${Date.now()}.jpg`;
       const localUri = `${FileSystem.cacheDirectory}${fileName}`;
       
       await FileSystem.copyAsync({
-          from: asset.uri,
+          from: currentUri,
           to: localUri
       });
 
@@ -52,10 +61,10 @@ export default function ImageDetailScreen() {
       setSummary(generatedSummary);
 
       addScreenshot({
-        id: asset.id,
+        id: id,
         localUri: localUri,
         summary: generatedSummary,
-        timestamp: asset.creationTime,
+        timestamp: asset?.creationTime || Date.now(),
       });
 
     } catch (e) {
@@ -66,7 +75,8 @@ export default function ImageDetailScreen() {
     }
   };
 
-  if (!asset) {
+  // We need the URI to render the image immediately for the animation
+  if (!uri && !asset) {
     return (
       <View style={[styles.container, styles.center]}>
         <ActivityIndicator size="large" color="#ECEDEE" />
@@ -79,17 +89,28 @@ export default function ImageDetailScreen() {
       <Stack.Screen options={{ 
         headerTitle: "",
         headerBackTitle: "Gallery",
+        // Optional: Make header transparent for better immersion
+        headerTransparent: true, 
+        headerTintColor: '#fff',
+        headerStyle: { backgroundColor: 'rgba(0,0,0,0.3)' }
       }} />
+      
       <ScrollView style={styles.container} contentContainerStyle={styles.content}>
         <View style={styles.imageContainer}>
-          <Image
-            source={{ uri: asset.uri }}
+          {/* 4. The Shared Element Image */}
+          <AnimatedImage
+            sharedTransitionTag={`image-${id}`}
+            source={{ uri: uri || asset?.uri }}
             style={styles.image}
             contentFit="contain"
           />
         </View>
 
-        <View style={styles.controls}>
+        {/* 5. Animate the controls in slightly later */}
+        <Animated.View 
+          entering={FadeInDown.duration(400).delay(300)} 
+          style={styles.controls}
+        >
           <TouchableOpacity 
             style={[styles.button, loading && styles.buttonDisabled]} 
             onPress={handleGenerateSummary}
@@ -110,7 +131,7 @@ export default function ImageDetailScreen() {
               </Markdown>
             </View>
           )}
-        </View>
+        </Animated.View>
       </ScrollView>
     </>
   );
@@ -127,10 +148,12 @@ const styles = StyleSheet.create({
   },
   content: {
     paddingBottom: 40,
+    // Add top padding to account for transparent header
+    paddingTop: 100, 
   },
   imageContainer: {
     width: '100%',
-    height: 500, // Fixed smaller height
+    height: 500,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -178,20 +201,5 @@ const markdownStyles = StyleSheet.create({
     fontSize: 16,
     lineHeight: 24,
   },
-  heading1: {
-    color: '#fff',
-    fontWeight: 'bold',
-  },
-  heading2: {
-    color: '#fff',
-    fontWeight: 'bold',
-  },
-  code_inline: {
-    backgroundColor: '#333',
-    color: '#fff',
-  },
-  code_block: {
-    backgroundColor: '#333',
-    borderColor: '#444',
-  },
+  // ... rest of your markdown styles
 });

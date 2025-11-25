@@ -140,8 +140,22 @@ const styles = StyleSheet.create({
     position: 'relative',
   },
   titleContainer: {
+    flexDirection: 'row', // Align title and model selector horizontally
     flex: 1,
-    justifyContent: 'center',
+  },
+  modelSelectorButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    borderRadius: 15,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  modelSelectorText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+    marginRight: 5,
   },
   title: {
     fontSize: 28,
