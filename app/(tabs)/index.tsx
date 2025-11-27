@@ -4,15 +4,17 @@ import React, { useState, useMemo } from 'react';
 import { useRouter, useFocusEffect } from 'expo-router';
 import * as MediaLibrary from 'expo-media-library';
 import Animated from 'react-native-reanimated'; // 1. Import Reanimated
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { getScreenshots, ScreenshotEntry } from '@/services/Storage';
 import { CustomHeader } from '@/components/CustomHeader';
 
-// 2. Create Animated Image Component
+// 2. Create Animated Image Component and cast type to avoid TS errors
 const AnimatedImage = Animated.createAnimatedComponent(Image) as React.ComponentType<any>;
 
 export default function GalleryScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const [assets, setAssets] = useState<MediaLibrary.Asset[]>([]);
   const [summaries, setSummaries] = useState<ScreenshotEntry[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -21,6 +23,7 @@ export default function GalleryScreen() {
   const { width } = useWindowDimensions();
 
   const columnWidth = (width - 48) / 2; 
+  const contentTopPadding = insets.top + 80;
 
   const loadData = async () => {
     if (permissionResponse?.status !== 'granted') {
@@ -64,31 +67,34 @@ export default function GalleryScreen() {
   const evenAssets = displayedAssets.filter((_, i) => i % 2 === 0);
   const oddAssets = displayedAssets.filter((_, i) => i % 2 !== 0);
 
-const renderImageCard = (item: MediaLibrary.Asset) => (
-  <TouchableOpacity 
-    key={item.id} 
-    onPress={() => {
-      router.push({
-        pathname: "/image/[id]", // <--- FIX: Use the literal route name
-        params: { 
-          id: item.id,           // <--- FIX: Move the dynamic ID here
-          uri: item.uri,
-          width: item.width,
-          height: item.height
-        }
-      });
-    }}
-    activeOpacity={0.8}
-    style={styles.cardWrapper}
-  >
-    <AnimatedImage 
-      sharedTransitionTag={`image-${item.id}`}
-      source={{ uri: item.uri }} 
-      style={[styles.image, { width: columnWidth, height: (columnWidth * item.height) / item.width }]} 
-      contentFit="cover"
-    />
-  </TouchableOpacity>
-);
+  const renderImageCard = (item: MediaLibrary.Asset) => (
+    <TouchableOpacity 
+      key={item.id} 
+      onPress={() => {
+        // 3. Pass URI and dimensions immediately via params
+        router.push({
+          pathname: "/image/[id]",
+          params: { 
+            id: item.id,
+            uri: item.uri, // Crucial for instant animation
+            width: item.width,
+            height: item.height
+          }
+        });
+      }}
+      activeOpacity={0.8}
+      style={styles.cardWrapper}
+    >
+      {/* 4. Add the sharedTransitionTag */}
+      <AnimatedImage 
+        sharedTransitionTag={`image-${item.id}`}
+        source={{ uri: item.uri }} 
+        style={[styles.image, { width: columnWidth, height: (columnWidth * item.height) / item.width }]} 
+        contentFit="cover"
+      />
+    </TouchableOpacity>
+  );
+
   return (
     <View style={styles.container}>
       <CustomHeader 
@@ -99,7 +105,7 @@ const renderImageCard = (item: MediaLibrary.Asset) => (
       />
       
       <ScrollView 
-        contentContainerStyle={styles.scrollContent} 
+        contentContainerStyle={[styles.scrollContent, { paddingTop: contentTopPadding }]} 
         keyboardShouldPersistTaps="handled"
       >
         <View style={styles.masonryContainer}>
@@ -122,8 +128,7 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingHorizontal: 16,
-    paddingBottom: 100,
-    paddingTop: 10,
+    paddingBottom: 100, 
   },
   masonryContainer: {
     flexDirection: 'row',

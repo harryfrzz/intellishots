@@ -1,49 +1,76 @@
-import { useLocalSearchParams, Stack } from 'expo-router';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { useLocalSearchParams, Stack, useRouter } from 'expo-router';
+import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Dimensions, Pressable, ScrollView, Platform } from 'react-native';
 import { Image } from 'expo-image';
 import React, { useEffect, useState } from 'react';
 import * as MediaLibrary from 'expo-media-library';
 import * as FileSystem from 'expo-file-system/legacy';
 import Markdown from 'react-native-markdown-display';
-import Animated, { FadeInDown } from 'react-native-reanimated'; // 1. Import Reanimated
+import Animated, { 
+  SlideInDown, 
+  SlideOutDown, 
+  useAnimatedStyle, 
+  withTiming, 
+  Easing,
+  useSharedValue,
+  withSpring,
+  interpolate,
+  runOnJS,
+  Extrapolation
+} from 'react-native-reanimated';
+import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler'; // 1. Import Gesture Handler
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { LinearGradient } from 'expo-linear-gradient';
+import { BlurView } from 'expo-blur';
 
 import { getScreenshot, addScreenshot } from '@/services/Storage';
 import { summarizeImage } from '@/services/LocalAI';
 import { Fonts } from '@/constants/theme';
+import { IconSymbol } from '@/components/ui/icon-symbol';
 
-// 2. Create Animated Image Component
 const AnimatedImage = Animated.createAnimatedComponent(Image) as React.ComponentType<any>;
+const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
+
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 export default function ImageDetailScreen() {
-  // 3. Get params passed from Gallery
+  const router = useRouter();
+  const insets = useSafeAreaInsets();
+  
   const { id, uri } = useLocalSearchParams<{ id: string; uri: string }>();
   
   const [asset, setAsset] = useState<MediaLibrary.AssetInfo | null>(null);
   const [summary, setSummary] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [isSheetOpen, setIsSheetOpen] = useState(false);
+  const [showControls, setShowControls] = useState(true);
+
+  // --- Gesture Shared Values ---
+  const translationY = useSharedValue(0);
+  const translationX = useSharedValue(0);
+  const scale = useSharedValue(1);
+  const isDragging = useSharedValue(false);
 
   useEffect(() => {
-    if (id) {
-      loadData();
-    }
+    if (id) loadData();
   }, [id]);
 
   const loadData = async () => {
     try {
        const assetInfo = await MediaLibrary.getAssetInfoAsync(id);
        setAsset(assetInfo);
-
        const existing = getScreenshot(id);
-       if (existing && existing.summary) {
-         setSummary(existing.summary);
-       }
+       if (existing?.summary) setSummary(existing.summary);
     } catch (e) {
       console.error("Error loading image data", e);
     }
   };
 
   const handleGenerateSummary = async () => {
-    // Use the passed URI if asset isn't fully loaded yet, though usually it is by now
+    setIsSheetOpen(true);
+    setShowControls(false); 
+
+    if (summary) return;
+
     const currentUri = asset?.uri || uri;
     if (!currentUri) return;
     
@@ -51,11 +78,7 @@ export default function ImageDetailScreen() {
     try {
       const fileName = `screenshot_${Date.now()}.jpg`;
       const localUri = `${FileSystem.cacheDirectory}${fileName}`;
-      
-      await FileSystem.copyAsync({
-          from: currentUri,
-          to: localUri
-      });
+      await FileSystem.copyAsync({ from: currentUri, to: localUri });
 
       const generatedSummary = await summarizeImage(localUri);
       setSummary(generatedSummary);
@@ -66,140 +89,353 @@ export default function ImageDetailScreen() {
         summary: generatedSummary,
         timestamp: asset?.creationTime || Date.now(),
       });
-
     } catch (e) {
-      console.error("Error generating summary", e);
       setSummary("Failed to generate summary.");
     } finally {
       setLoading(false);
     }
   };
 
-  // We need the URI to render the image immediately for the animation
-  if (!uri && !asset) {
-    return (
-      <View style={[styles.container, styles.center]}>
-        <ActivityIndicator size="large" color="#ECEDEE" />
-      </View>
+  const closeSheet = () => {
+    setIsSheetOpen(false);
+    setShowControls(true);
+  };
+
+  const toggleControls = () => {
+    if (!isSheetOpen && !isDragging.value) {
+        setShowControls(prev => !prev);
+    } else if (isSheetOpen) {
+        closeSheet();
+    }
+  };
+
+  // --- Gesture Logic ---
+  const panGesture = Gesture.Pan()
+    .enabled(!isSheetOpen) // Disable swipe to close if bottom sheet is open
+    .onUpdate((e) => {
+      // Only allow dragging if we aren't zoomed in (zoom logic omitted for brevity, assuming scale 1)
+      translationX.value = e.translationX;
+      translationY.value = e.translationY;
+      isDragging.value = true;
+      
+      // Scale down as we drag down
+      scale.value = interpolate(
+        Math.abs(e.translationY),
+        [0, SCREEN_HEIGHT],
+        [1, 0.5],
+        Extrapolation.CLAMP
+      );
+    })
+    .onEnd((e) => {
+      isDragging.value = false;
+      // Threshold: if dragged down more than 100px or moved fast
+      if (Math.abs(e.translationY) > 100 || Math.abs(e.velocityY) > 500) {
+        runOnJS(router.back)();
+      } else {
+        // Spring back to original position
+        translationX.value = withSpring(0);
+        translationY.value = withSpring(0);
+        scale.value = withSpring(1);
+      }
+    });
+
+  // --- Animations ---
+
+  // 1. Image Transform (Gesture + Sheet offset)
+  const imageAnimatedStyle = useAnimatedStyle(() => {
+    // If dragging, follow finger. If sheet open, move up.
+    const translateY = isDragging.value 
+        ? translationY.value 
+        : withTiming(isSheetOpen ? -SCREEN_HEIGHT * 0.25 : 0, { duration: 400 });
+    
+    const currentScale = isDragging.value
+        ? scale.value
+        : withTiming(isSheetOpen ? 0.9 : 1, { duration: 400 });
+
+    return {
+      transform: [
+        { translateX: translationX.value },
+        { translateY: translateY },
+        { scale: currentScale }
+      ],
+      // Smooth out corners when shrinking
+      borderRadius: isDragging.value ? 20 : 0, 
+      overflow: 'hidden'
+    };
+  });
+
+  // 2. Background Opacity (Fades out as you drag)
+  const containerStyle = useAnimatedStyle(() => {
+    const opacity = interpolate(
+      Math.abs(translationY.value),
+      [0, 200],
+      [1, 0], // 1 = Black, 0 = Transparent
+      Extrapolation.CLAMP
     );
-  }
+    return {
+      backgroundColor: `rgba(0,0,0,${opacity})`
+    };
+  });
+
+  // 3. UI Overlay Visibility (Hide when dragging or controls toggled off)
+  const controlsStyle = useAnimatedStyle(() => {
+    // Hide controls immediately if dragging starts
+    const opacity = isDragging.value 
+        ? withTiming(0, { duration: 100 }) 
+        : withTiming(showControls ? 1 : 0, { duration: 300 });
+
+    return {
+      opacity,
+      transform: [{
+        translateY: withTiming(showControls ? 0 : 20, { duration: 300 })
+      }],
+      pointerEvents: showControls && !isDragging.value ? 'auto' : 'none', 
+    };
+  });
+
+  if (!uri && !asset) return <View style={styles.container} />;
 
   return (
-    <>
-      <Stack.Screen options={{ 
-        headerTitle: "",
-        headerBackTitle: "Gallery",
-        // Optional: Make header transparent for better immersion
-        headerTransparent: true, 
-        headerTintColor: '#fff',
-        headerStyle: { backgroundColor: 'rgba(0,0,0,0.3)' }
-      }} />
-      
-      <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-        <View style={styles.imageContainer}>
-          {/* 4. The Shared Element Image */}
-          <AnimatedImage
-            sharedTransitionTag={`image-${id}`}
-            source={{ uri: uri || asset?.uri }}
-            style={styles.image}
-            contentFit="contain"
-          />
-        </View>
+    // Wrap in GestureHandlerRootView for gestures to work
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <Animated.View style={[styles.container, containerStyle]}>
+        <Stack.Screen options={{ headerShown: false }} />
 
-        {/* 5. Animate the controls in slightly later */}
-        <Animated.View 
-          entering={FadeInDown.duration(400).delay(300)} 
-          style={styles.controls}
-        >
-          <TouchableOpacity 
-            style={[styles.button, loading && styles.buttonDisabled]} 
-            onPress={handleGenerateSummary}
-            disabled={loading}
+        {/* Gesture Detector Wraps the Image */}
+        <GestureDetector gesture={panGesture}>
+          <AnimatedPressable 
+            style={[styles.imageWrapper, imageAnimatedStyle]} 
+            onPress={toggleControls}
           >
-            {loading ? (
-              <ActivityIndicator color="#000" />
-            ) : (
-              <Text style={styles.buttonText}>{summary ? "Regenerate Summary" : "Generate Summary"}</Text>
-            )}
-          </TouchableOpacity>
+            <AnimatedImage
+              sharedTransitionTag={`image-${id}`}
+              source={{ uri: uri || asset?.uri }}
+              style={styles.fullScreenImage}
+              contentFit="contain"
+            />
+          </AnimatedPressable>
+        </GestureDetector>
 
-          {summary && (
-            <View style={styles.summaryContainer}>
-              <Text style={styles.summaryTitle}>Summary</Text>
-              <Markdown style={markdownStyles}>
-                {summary}
-              </Markdown>
-            </View>
-          )}
+        {/* Header Overlay */}
+        <Animated.View style={[styles.headerOverlay, { paddingTop: insets.top }, controlsStyle]}>
+          <LinearGradient
+            colors={['rgba(0,0,0,0.6)', 'transparent']}
+            style={StyleSheet.absoluteFill}
+          />
+          <TouchableOpacity onPress={() => router.back()} style={styles.iconButton}>
+            <IconSymbol name="chevron.left" size={28} color="#fff" />
+          </TouchableOpacity>
         </Animated.View>
-      </ScrollView>
-    </>
+
+        {/* Floating Bottom Bar */}
+        <Animated.View style={[styles.floatingBarWrapper, { bottom: insets.bottom + 10 }, controlsStyle]}>
+          <BlurView intensity={80} tint="dark" style={styles.floatingBarContent}>
+            
+            <TouchableOpacity style={styles.circleActionBtn}>
+              <IconSymbol name="trash" size={20} color="#fff" />
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.heroBtn} onPress={handleGenerateSummary}>
+              <IconSymbol name="sparkles" size={18} color="#fff" />
+              <Text style={styles.heroBtnText}>Summarize</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.circleActionBtn}>
+              <IconSymbol name="info.circle" size={22} color="#fff" />
+            </TouchableOpacity>
+
+          </BlurView>
+        </Animated.View>
+
+        {/* Sliding Bottom Sheet */}
+        {isSheetOpen && (
+          <>
+            <Pressable style={styles.backdrop} onPress={closeSheet} />
+            <Animated.View 
+              entering={SlideInDown.springify().damping(40).stiffness(200)} 
+              exiting={SlideOutDown}
+              style={[styles.bottomSheet, { paddingBottom: insets.bottom }]}
+            >
+              <View style={styles.sheetHandle} />
+              <View style={styles.sheetHeader}>
+                <Text style={styles.sheetTitle}>Image Summary</Text>
+                <TouchableOpacity onPress={closeSheet} style={styles.closeSheetBtn}>
+                  <IconSymbol name="xmark.circle.fill" size={24} color="#555" />
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.scrollWrapper}>
+                  {loading ? (
+                  <View style={styles.loadingContainer}>
+                      <ActivityIndicator size="large" color="#fff" />
+                      <Text style={styles.loadingText}>Analyzing Image...</Text>
+                  </View>
+                  ) : (
+                      <ScrollView 
+                          showsVerticalScrollIndicator={false}
+                          contentContainerStyle={styles.summaryContent}
+                      >
+                          <Markdown style={markdownStyles}>
+                              {summary || "No summary available."}
+                          </Markdown>
+                      </ScrollView>
+                  )}
+              </View>
+            </Animated.View>
+          </>
+        )}
+      </Animated.View>
+    </GestureHandlerRootView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#000',
+    backgroundColor: '#000', // Base background (faded out via animated style)
   },
-  center: {
+  imageWrapper: {
+    flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    zIndex: 1,
   },
-  content: {
-    paddingBottom: 40,
-    // Add top padding to account for transparent header
-    paddingTop: 100, 
-  },
-  imageContainer: {
-    width: '100%',
-    height: 500,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  image: {
-    width: '100%',
+  fullScreenImage: {
+    width: SCREEN_WIDTH,
     height: '100%',
   },
-  controls: {
-    padding: 20,
-    gap: 20,
+  // --- Header ---
+  headerOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 100,
+    paddingHorizontal: 20,
+    justifyContent: 'center',
+    zIndex: 10,
   },
-  button: {
-    backgroundColor: '#ECEDEE',
-    paddingVertical: 16,
-    borderRadius: 12,
+  iconButton: {
+    width: 40,
+    height: 40,
+    justifyContent: 'center',
+  },
+  // --- Floating Bottom Bar ---
+  floatingBarWrapper: {
+    position: 'absolute',
+    alignSelf: 'center',
+    width: 260, 
+    borderRadius: 35,
+    overflow: 'hidden', 
+    zIndex: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 10,
+    elevation: 10,
+  },
+  floatingBarContent: {
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 6, 
+    height: 60,
   },
-  buttonDisabled: {
-    opacity: 0.7,
+  circleActionBtn: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'transparent', 
   },
-  buttonText: {
-    color: '#000',
-    fontSize: 16,
+  heroBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: 48,
+    paddingHorizontal: 20,
+    borderRadius: 24,
+    backgroundColor: 'rgba(255,255,255,0.15)', 
+    gap: 8,
+  },
+  heroBtnText: {
+    color: '#fff',
+    fontSize: 14,
     fontWeight: '600',
-    fontFamily: Fonts.rounded, 
+    letterSpacing: 0.3,
   },
-  summaryContainer: {
-    backgroundColor: '#2a2a2a',
+  // --- Bottom Sheet ---
+  backdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    zIndex: 20,
+  },
+  bottomSheet: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: '#1c1c1e',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
     padding: 20,
-    borderRadius: 16,
-    marginTop: 10,
+    zIndex: 30,
+    height: SCREEN_HEIGHT * 0.55,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: -2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 10,
   },
-  summaryTitle: {
-    color: '#ECEDEE',
-    fontSize: 18,
-    fontWeight: 'bold',
+  sheetHandle: {
+    width: 40,
+    height: 4,
+    backgroundColor: '#444',
+    borderRadius: 2,
+    alignSelf: 'center',
+    marginBottom: 20,
+  },
+  sheetHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     marginBottom: 10,
+  },
+  sheetTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#fff',
     fontFamily: Fonts.rounded,
+  },
+  closeSheetBtn: {
+    padding: 4,
+  },
+  scrollWrapper: {
+    flex: 1,
+  },
+  loadingContainer: {
+    padding: 40,
+    alignItems: 'center',
+    gap: 16,
+  },
+  loadingText: {
+    color: '#aaa',
+    fontSize: 14,
+  },
+  summaryContent: {
+    paddingBottom: 40,
   },
 });
 
 const markdownStyles = StyleSheet.create({
   body: {
-    color: '#ccc',
+    color: '#e1e1e1',
     fontSize: 16,
     lineHeight: 24,
   },
-  // ... rest of your markdown styles
+  heading1: { color: '#fff', fontWeight: 'bold', marginVertical: 10 },
+  heading2: { color: '#fff', fontWeight: 'bold', marginVertical: 8 },
+  paragraph: { marginVertical: 8 },
 });

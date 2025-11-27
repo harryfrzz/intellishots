@@ -13,10 +13,8 @@ import Animated, {
 
 // 1. Define your available models
 const MODELS = [
-  { id: 'default', name: 'GPT-4o (Default)' },
+  { id: 'default', name: 'LFM2-VL-450M' },
   { id: 'smolvlm', name: 'smolVLM' },
-  { id: 'llama', name: 'Llama 3.2 Vision' },
-  { id: 'claude', name: 'Claude 3.5 Sonnet' },
 ];
 
 export function CustomTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
@@ -162,8 +160,9 @@ export function CustomTabBar({ state, descriptors, navigation }: BottomTabBarPro
 
               let iconName = 'house.fill';
               if (route.name === 'index') iconName = 'photo.on.rectangle';
-              if (route.name === 'history') iconName = 'clock.fill';
               if (route.name === 'chat') iconName = 'sparkles';
+              if (route.name === 'history') iconName = 'books.vertical.fill';
+
               if (route.name === 'settings') iconName = 'gearshape.fill';
               
               return (
@@ -224,7 +223,7 @@ const styles = StyleSheet.create({
     zIndex: 100,
   },
   mainContainer: {
-    width: '90%',
+    width: '95%',
     flexDirection: 'row', 
     alignItems: 'center',
     justifyContent: 'center',
