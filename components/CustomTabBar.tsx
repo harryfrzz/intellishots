@@ -160,8 +160,8 @@ export function CustomTabBar({ state, descriptors, navigation }: BottomTabBarPro
 
               let iconName = 'house.fill';
               if (route.name === 'index') iconName = 'photo.on.rectangle';
-              if (route.name === 'chat') iconName = 'sparkles';
-              if (route.name === 'history') iconName = 'books.vertical.fill';
+              if (route.name === 'ChatScreen') iconName = 'sparkles';
+              if (route.name === 'HistoryScreen') iconName = 'books.vertical.fill';
 
               if (route.name === 'settings') iconName = 'gearshape.fill';
               
@@ -268,11 +268,6 @@ const styles = StyleSheet.create({
   switcherWrapper: {
     borderRadius: 30,
     overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.5,
-    shadowRadius: 10,
-    elevation: 10,
   },
   switcherContainer: {
     height: 60,

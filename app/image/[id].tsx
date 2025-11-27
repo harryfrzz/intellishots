@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Dimensions
 import { Image } from 'expo-image';
 import React, { useEffect, useState } from 'react';
 import * as MediaLibrary from 'expo-media-library';
-import * as FileSystem from 'expo-file-system/legacy';
+import * as ImageManipulator from 'expo-image-manipulator'; // 1. Import ImageManipulator
 import Markdown from 'react-native-markdown-display';
 import Animated, { 
   SlideInDown, 
@@ -17,7 +17,7 @@ import Animated, {
   runOnJS,
   Extrapolation
 } from 'react-native-reanimated';
-import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler'; // 1. Import Gesture Handler
+import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
@@ -76,20 +76,28 @@ export default function ImageDetailScreen() {
     
     setLoading(true);
     try {
-      const fileName = `screenshot_${Date.now()}.jpg`;
-      const localUri = `${FileSystem.cacheDirectory}${fileName}`;
-      await FileSystem.copyAsync({ from: currentUri, to: localUri });
+      // 2. Compress & Resize using ImageManipulator
+      // Resize to 512px for optimal balance of speed/quality for VLM
+      const result = await ImageManipulator.manipulateAsync(
+        currentUri,
+        [{ resize: { width: 512 } }], 
+        { compress: 0.7, format: ImageManipulator.SaveFormat.JPEG }
+      );
 
+      const localUri = result.uri;
+
+      // Pass the smaller, compressed image to the AI
       const generatedSummary = await summarizeImage(localUri);
       setSummary(generatedSummary);
 
       addScreenshot({
         id: id,
-        localUri: localUri,
+        localUri: localUri, // Storing the cached small version is efficient
         summary: generatedSummary,
         timestamp: asset?.creationTime || Date.now(),
       });
     } catch (e) {
+      console.error(e);
       setSummary("Failed to generate summary.");
     } finally {
       setLoading(false);
@@ -111,14 +119,12 @@ export default function ImageDetailScreen() {
 
   // --- Gesture Logic ---
   const panGesture = Gesture.Pan()
-    .enabled(!isSheetOpen) // Disable swipe to close if bottom sheet is open
+    .enabled(!isSheetOpen)
     .onUpdate((e) => {
-      // Only allow dragging if we aren't zoomed in (zoom logic omitted for brevity, assuming scale 1)
       translationX.value = e.translationX;
       translationY.value = e.translationY;
       isDragging.value = true;
       
-      // Scale down as we drag down
       scale.value = interpolate(
         Math.abs(e.translationY),
         [0, SCREEN_HEIGHT],
@@ -128,11 +134,9 @@ export default function ImageDetailScreen() {
     })
     .onEnd((e) => {
       isDragging.value = false;
-      // Threshold: if dragged down more than 100px or moved fast
       if (Math.abs(e.translationY) > 100 || Math.abs(e.velocityY) > 500) {
         runOnJS(router.back)();
       } else {
-        // Spring back to original position
         translationX.value = withSpring(0);
         translationY.value = withSpring(0);
         scale.value = withSpring(1);
@@ -140,10 +144,7 @@ export default function ImageDetailScreen() {
     });
 
   // --- Animations ---
-
-  // 1. Image Transform (Gesture + Sheet offset)
   const imageAnimatedStyle = useAnimatedStyle(() => {
-    // If dragging, follow finger. If sheet open, move up.
     const translateY = isDragging.value 
         ? translationY.value 
         : withTiming(isSheetOpen ? -SCREEN_HEIGHT * 0.25 : 0, { duration: 400 });
@@ -158,18 +159,16 @@ export default function ImageDetailScreen() {
         { translateY: translateY },
         { scale: currentScale }
       ],
-      // Smooth out corners when shrinking
       borderRadius: isDragging.value ? 20 : 0, 
       overflow: 'hidden'
     };
   });
 
-  // 2. Background Opacity (Fades out as you drag)
   const containerStyle = useAnimatedStyle(() => {
     const opacity = interpolate(
       Math.abs(translationY.value),
       [0, 200],
-      [1, 0], // 1 = Black, 0 = Transparent
+      [1, 0],
       Extrapolation.CLAMP
     );
     return {
@@ -177,9 +176,7 @@ export default function ImageDetailScreen() {
     };
   });
 
-  // 3. UI Overlay Visibility (Hide when dragging or controls toggled off)
   const controlsStyle = useAnimatedStyle(() => {
-    // Hide controls immediately if dragging starts
     const opacity = isDragging.value 
         ? withTiming(0, { duration: 100 }) 
         : withTiming(showControls ? 1 : 0, { duration: 300 });
@@ -196,12 +193,10 @@ export default function ImageDetailScreen() {
   if (!uri && !asset) return <View style={styles.container} />;
 
   return (
-    // Wrap in GestureHandlerRootView for gestures to work
     <GestureHandlerRootView style={{ flex: 1 }}>
       <Animated.View style={[styles.container, containerStyle]}>
         <Stack.Screen options={{ headerShown: false }} />
 
-        {/* Gesture Detector Wraps the Image */}
         <GestureDetector gesture={panGesture}>
           <AnimatedPressable 
             style={[styles.imageWrapper, imageAnimatedStyle]} 
@@ -216,7 +211,6 @@ export default function ImageDetailScreen() {
           </AnimatedPressable>
         </GestureDetector>
 
-        {/* Header Overlay */}
         <Animated.View style={[styles.headerOverlay, { paddingTop: insets.top }, controlsStyle]}>
           <LinearGradient
             colors={['rgba(0,0,0,0.6)', 'transparent']}
@@ -227,7 +221,6 @@ export default function ImageDetailScreen() {
           </TouchableOpacity>
         </Animated.View>
 
-        {/* Floating Bottom Bar */}
         <Animated.View style={[styles.floatingBarWrapper, { bottom: insets.bottom + 10 }, controlsStyle]}>
           <BlurView intensity={80} tint="dark" style={styles.floatingBarContent}>
             
@@ -235,19 +228,18 @@ export default function ImageDetailScreen() {
               <IconSymbol name="trash" size={20} color="#fff" />
             </TouchableOpacity>
 
+            <TouchableOpacity style={styles.circleActionBtn}>
+              <IconSymbol name="info.circle" size={22} color="#fff" />
+            </TouchableOpacity>
+
             <TouchableOpacity style={styles.heroBtn} onPress={handleGenerateSummary}>
               <IconSymbol name="sparkles" size={18} color="#fff" />
               <Text style={styles.heroBtnText}>Summarize</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.circleActionBtn}>
-              <IconSymbol name="info.circle" size={22} color="#fff" />
-            </TouchableOpacity>
-
           </BlurView>
         </Animated.View>
 
-        {/* Sliding Bottom Sheet */}
         {isSheetOpen && (
           <>
             <Pressable style={styles.backdrop} onPress={closeSheet} />
@@ -292,7 +284,7 @@ export default function ImageDetailScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#000', // Base background (faded out via animated style)
+    backgroundColor: '#000',
   },
   imageWrapper: {
     flex: 1,
@@ -304,7 +296,6 @@ const styles = StyleSheet.create({
     width: SCREEN_WIDTH,
     height: '100%',
   },
-  // --- Header ---
   headerOverlay: {
     position: 'absolute',
     top: 0,
@@ -320,7 +311,6 @@ const styles = StyleSheet.create({
     height: 40,
     justifyContent: 'center',
   },
-  // --- Floating Bottom Bar ---
   floatingBarWrapper: {
     position: 'absolute',
     alignSelf: 'center',
@@ -367,7 +357,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     letterSpacing: 0.3,
   },
-  // --- Bottom Sheet ---
   backdrop: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(0,0,0,0.4)',

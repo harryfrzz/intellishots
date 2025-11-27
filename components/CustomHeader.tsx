@@ -1,40 +1,101 @@
 import React, { useState } from 'react';
-import { View, TextInput, StyleSheet, TouchableOpacity, Text, Platform } from 'react-native';
+import { 
+  View, 
+  TextInput, 
+  StyleSheet, 
+  TouchableOpacity, 
+  Platform, 
+  ScrollView,
+  Text
+} from 'react-native';
 import Animated, { 
   useSharedValue, 
   useAnimatedStyle, 
   withTiming, 
   Easing,
   FadeIn,
-  FadeOut
+  FadeOut,
+  interpolate,
+  Extrapolation,
+  SharedValue
 } from 'react-native-reanimated';
+import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
-import { IconSymbol } from '@/components/ui/icon-symbol';
+import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+import { IconSymbol } from '@/components/ui/icon-symbol';
+import { Fonts } from '@/constants/theme';
+
+// Helper to extract valid icon names from your IconSymbol component
+type IconSymbolName = React.ComponentProps<typeof IconSymbol>['name'];
+
+const AnimatedBlurView = Animated.createAnimatedComponent(BlurView);
+const AnimatedText = Animated.createAnimatedComponent(Text) as React.ComponentType<any>;
+
+export interface Tag {
+  id: string;
+  title: string;
+}
 
 interface CustomHeaderProps {
   title?: string;
-  onSearch: (text: string) => void;
-  selectedTag?: string; // Made optional to match usage
-  onSelectTag?: (tag: string) => void; // Made optional
+  
+  // Search Props
+  onSearch?: (text: string) => void;
+  showSearch?: boolean;
+  
+  // Navigation Props
+  showBackButton?: boolean;
+
+  // Scroll Animation Prop
+  scrollY?: SharedValue<number>;
+  
+  // Tags Props (Gallery)
+  tags?: Tag[];
+  selectedTag?: string;
+  onSelectTag?: (id: string) => void;
+
+  // Right Action Props (Chat/History)
+  rightIcon?: IconSymbolName;
+  onRightPress?: () => void;
 }
 
-export function CustomHeader({ title = 'Gallery', onSearch }: CustomHeaderProps) {
+export function CustomHeader({ 
+  title = 'Gallery', 
+  onSearch, 
+  scrollY, 
+  tags = [], 
+  selectedTag, 
+  onSelectTag,
+  showSearch = true,
+  showBackButton = false,
+  rightIcon,
+  onRightPress
+}: CustomHeaderProps) {
+  const router = useRouter();
+  const insets = useSafeAreaInsets();
   const [isSearchExpanded, setIsSearchExpanded] = useState(false);
   const [searchText, setSearchText] = useState('');
-  const insets = useSafeAreaInsets();
   
   const searchWidth = useSharedValue(0);
   const opacity = useSharedValue(0);
 
-  // Calculate specific height to match the Album screen look
-  // Status Bar + Header Content + minimal fade space
-  const headerHeight = insets.top + 60; 
+  // --- Layout Constants ---
+  const TITLE_HEIGHT = 50;
+  const TAGS_HEIGHT = tags.length > 0 ? 50 : 0; 
+  const PADDING_TOP = insets.top;
+  
+  // Total height when fully expanded
+  const HEADER_MAX_HEIGHT = PADDING_TOP + TITLE_HEIGHT + TAGS_HEIGHT;
+  // Min height when scrolled (Title only)
+  const HEADER_MIN_HEIGHT = PADDING_TOP + TITLE_HEIGHT;
 
+  // --- Search Logic ---
   const toggleSearch = () => {
     if (isSearchExpanded) {
       setSearchText('');
-      onSearch('');
+      onSearch?.('');
       searchWidth.value = withTiming(0, { duration: 300, easing: Easing.inOut(Easing.ease) });
       opacity.value = withTiming(0, { duration: 200 });
       setTimeout(() => setIsSearchExpanded(false), 300);
@@ -47,9 +108,12 @@ export function CustomHeader({ title = 'Gallery', onSearch }: CustomHeaderProps)
 
   const handleSearchTextChange = (text: string) => {
     setSearchText(text);
-    onSearch(text);
+    onSearch?.(text);
   };
 
+  // --- Animated Styles ---
+
+  // 1. Search Bar Expansion
   const animatedSearchStyle = useAnimatedStyle(() => ({
     width: `${searchWidth.value}%`,
   }));
@@ -58,48 +122,160 @@ export function CustomHeader({ title = 'Gallery', onSearch }: CustomHeaderProps)
     opacity: opacity.value,
   }));
 
-  return (
-    <View style={styles.headerWrapper}>
-      <LinearGradient
-        // 1. Use the smoother 0.8 opacity black used in Album Screen
-        colors={['rgba(0,0,0,0.8)', 'rgba(0,0,0,0)']}
-        // 2. Add locations to control the fade curve
-        locations={[0, 1]} 
-        style={[styles.gradientContainer, { height: headerHeight, paddingTop: insets.top }]}
-      >
-        <View style={styles.topRow}>
-          {!isSearchExpanded && (
-            <Animated.View entering={FadeIn} exiting={FadeOut} style={styles.titleContainer}>
-              <Text style={styles.title}>{title}</Text>
-            </Animated.View>
-          )}
+  // 2. Container Height (Shrinks on scroll)
+  const containerStyle = useAnimatedStyle(() => {
+    if (!scrollY) return { height: HEADER_MAX_HEIGHT };
+    const height = interpolate(
+      scrollY.value, 
+      [0, 100], 
+      [HEADER_MAX_HEIGHT, HEADER_MIN_HEIGHT], 
+      Extrapolation.CLAMP
+    );
+    return { height };
+  });
 
-          {isSearchExpanded ? (
-            <Animated.View style={[styles.searchContainer, animatedSearchStyle]}>
-              <Animated.View style={[styles.inputWrapper, animatedInputStyle]}>
-                <IconSymbol name="magnifyingglass" size={20} color="#ccc" />
-                <TextInput
-                  style={styles.input}
-                  placeholder="Search..."
-                  placeholderTextColor="#aaa"
-                  value={searchText}
-                  onChangeText={handleSearchTextChange}
-                  autoFocus
-                  returnKeyType="search"
-                />
-              </Animated.View>
-              <TouchableOpacity onPress={toggleSearch} style={styles.closeButton}>
-                 <IconSymbol name="xmark" size={20} color="#fff" />
+  // 3. Background Blur Opacity (Fades in on scroll)
+  const backgroundStyle = useAnimatedStyle(() => {
+    if (!scrollY) return { opacity: 0 };
+    return {
+      opacity: interpolate(scrollY.value, [0, 50], [0, 1], Extrapolation.CLAMP),
+    };
+  });
+
+  // 4. Title Scaling (Shrinks slightly on scroll)
+  const titleStyle = useAnimatedStyle(() => {
+    if (!scrollY) return {};
+    const scale = interpolate(scrollY.value, [0, 50], [1, 0.85], Extrapolation.CLAMP);
+    // If back button is present, we might want less vertical movement to keep alignment
+    const translateY = interpolate(scrollY.value, [0, 50], [0, 2], Extrapolation.CLAMP);
+    return {
+      transform: [{ scale }, { translateY }],
+    };
+  });
+
+  // 5. Tags Row (Fades out and slides up on scroll)
+  const tagsRowStyle = useAnimatedStyle(() => {
+    if (!scrollY) return { opacity: 1 };
+    
+    const tagsOpacity = interpolate(scrollY.value, [0, 40], [1, 0], Extrapolation.CLAMP);
+    const translateY = interpolate(scrollY.value, [0, 40], [0, -20], Extrapolation.CLAMP);
+    
+    return {
+      opacity: tagsOpacity,
+      transform: [{ translateY }],
+      pointerEvents: scrollY.value > 40 ? 'none' : 'auto', 
+    };
+  });
+
+  return (
+    <Animated.View style={[styles.headerWrapper, containerStyle]}>
+      
+      {/* Background Layer 1: Linear Gradient (Always visible, faint) */}
+      <LinearGradient
+        colors={['rgba(0,0,0,0.8)', 'transparent']}
+        style={StyleSheet.absoluteFill}
+        pointerEvents="none"
+      />
+
+      {/* Background Layer 2: Blur View (Fades in on scroll) */}
+      <AnimatedBlurView 
+        intensity={80} 
+        tint="dark" 
+        style={[StyleSheet.absoluteFill, backgroundStyle]} 
+      />
+
+      <View style={[styles.contentContainer, { paddingTop: insets.top }]}>
+        
+        {/* --- ROW 1: Top Bar (Back, Title, Actions) --- */}
+        <View style={styles.topRow}>
+          
+          {/* Left Side: Back Button & Title */}
+          <View style={styles.leftContainer}>
+            {showBackButton && (
+              <TouchableOpacity 
+                onPress={() => router.back()} 
+                style={styles.backButton}
+              >
+                <IconSymbol name="chevron.left" size={24} color="#fff" />
               </TouchableOpacity>
-            </Animated.View>
-          ) : (
-            <TouchableOpacity onPress={toggleSearch} style={styles.iconButton}>
-              <IconSymbol name="magnifyingglass" size={24} color="#fff" />
-            </TouchableOpacity>
-          )}
+            )}
+
+            {!isSearchExpanded && (
+              <Animated.View entering={FadeIn} exiting={FadeOut}>
+                <AnimatedText style={[styles.title, titleStyle]} numberOfLines={1}>
+                  {title}
+                </AnimatedText>
+              </Animated.View>
+            )}
+          </View>
+
+          {/* Right Side: Search OR Custom Action */}
+          <View style={styles.actionContainer}>
+            {showSearch ? (
+              // SEARCH MODE
+              isSearchExpanded ? (
+                <Animated.View style={[styles.searchContainer, animatedSearchStyle]}>
+                  <Animated.View style={[styles.inputWrapper, animatedInputStyle]}>
+                    <IconSymbol name="magnifyingglass" size={20} color="#ccc" />
+                    <TextInput
+                      style={styles.input}
+                      placeholder="Search..."
+                      placeholderTextColor="#aaa"
+                      value={searchText}
+                      onChangeText={handleSearchTextChange}
+                      autoFocus
+                      returnKeyType="search"
+                    />
+                  </Animated.View>
+                  <TouchableOpacity onPress={toggleSearch} style={styles.closeButton}>
+                    <IconSymbol name="xmark" size={20} color="#fff" />
+                  </TouchableOpacity>
+                </Animated.View>
+              ) : (
+                <TouchableOpacity onPress={toggleSearch} style={styles.iconButton}>
+                  <IconSymbol name="magnifyingglass" size={24} color="#fff" />
+                </TouchableOpacity>
+              )
+            ) : (
+              // CUSTOM ACTION MODE (e.g., New Chat)
+              rightIcon && (
+                <TouchableOpacity onPress={onRightPress} style={styles.iconButton}>
+                  <IconSymbol name={rightIcon} size={22} color="#fff" />
+                </TouchableOpacity>
+              )
+            )}
+          </View>
         </View>
-      </LinearGradient>
-    </View>
+
+        {/* --- ROW 2: Tags (Collapsible) --- */}
+        {!isSearchExpanded && tags.length > 0 && (
+          <Animated.View style={[styles.tagsContainer, tagsRowStyle]}>
+            <ScrollView 
+              horizontal 
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.tagsContent}
+            >
+              {tags.map((tag) => {
+                const isActive = selectedTag === tag.id;
+                return (
+                  <TouchableOpacity
+                    key={tag.id}
+                    style={[styles.tag, isActive && styles.tagActive]}
+                    onPress={() => onSelectTag?.(tag.id)}
+                    activeOpacity={0.7}
+                  >
+                    <AnimatedText style={[styles.tagText, isActive && styles.tagTextActive]}>
+                      {tag.title}
+                    </AnimatedText>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </Animated.View>
+        )}
+
+      </View>
+    </Animated.View>
   );
 }
 
@@ -110,55 +286,79 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     zIndex: 100,
+    overflow: 'hidden',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.05)',
   },
-  gradientContainer: {
-    width: '100%',
-    paddingHorizontal: 16,
-    // Align content to the center/bottom of the fixed height area
-    justifyContent: 'center', 
-    paddingBottom: 8,
+  contentContainer: {
+    flex: 1,
   },
   topRow: {
-    height: 44, // Standard iOS navigation bar height
+    height: 50, 
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    paddingHorizontal: 16,
   },
-  titleContainer: {
+  leftContainer: {
     flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    overflow: 'hidden',
+  },
+  backButton: {
+    marginRight: 12,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    alignItems: 'center',
     justifyContent: 'center',
   },
   title: {
-    fontSize: 28, // Matches Album title size
+    fontSize: 32,
     fontWeight: '800',
     color: '#fff',
     fontFamily: Platform.select({ ios: 'System', default: 'sans-serif' }),
-    letterSpacing: 0.5,
+    textShadowColor: 'rgba(0, 0, 0, 0.3)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 4,
+  },
+  actionContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    minWidth: 40,
   },
   iconButton: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    // Slightly more visible button bg against the gradient
-    backgroundColor: 'rgba(255,255,255,0.1)', 
+    backgroundColor: 'rgba(255,255,255,0.15)',
     alignItems: 'center',
     justifyContent: 'center',
+    marginLeft: 10,
   },
+  
+  // --- Search Styles ---
   searchContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     height: '100%',
     flex: 1,
+    justifyContent: 'flex-end',
   },
   inputWrapper: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.15)',
+    backgroundColor: 'rgba(0,0,0,0.5)', 
     borderRadius: 20,
     paddingHorizontal: 12,
     height: 40,
     marginRight: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
   },
   input: {
     flex: 1,
@@ -167,7 +367,37 @@ const styles = StyleSheet.create({
     fontSize: 16,
     height: '100%',
   },
-  closeButton: {
-    padding: 5,
+  closeButton: { padding: 5 },
+
+  // --- Tags Styles ---
+  tagsContainer: {
+    height: 50,
+    justifyContent: 'center',
+  },
+  tagsContent: {
+    paddingHorizontal: 16,
+    alignItems: 'center',
+    gap: 10,
+  },
+  tag: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.05)',
+  },
+  tagActive: {
+    backgroundColor: '#fff',
+  },
+  tagText: {
+    color: '#ccc',
+    fontSize: 14,
+    fontWeight: '600',
+    fontFamily: Fonts.rounded,
+  },
+  tagTextActive: {
+    color: '#000',
+    fontWeight: '700',
   },
 });

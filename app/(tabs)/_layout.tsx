@@ -18,13 +18,13 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
-        name="chat"
+        name="ChatScreen"
         options={{
           title: 'Chat',
         }}
       />
       <Tabs.Screen
-        name="history"
+        name="HistoryScreen"
         options={{
           title: 'History',
         }}
