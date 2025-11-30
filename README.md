@@ -1,4 +1,4 @@
-# Cactus Local AI Gallery 🌵
+# Intellishots 🌵
 
 ## ⚠️ Platform Support
 
