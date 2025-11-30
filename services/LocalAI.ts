@@ -1,14 +1,12 @@
 import { CactusLM, type Message } from 'cactus-react-native';
 import * as FileSystem from 'expo-file-system/legacy';
 
-// Shared Interface
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
   content: string;
-  images?: string[]; // Supports multiple images
-  // Legacy support for single image
-  imageUri?: string;
+  images?: string[]; 
+  imageUri?: string; // Legacy
 }
 
 const MODEL_SLUG = 'lfm2-vl-450m';
@@ -18,19 +16,14 @@ let isModelLoaded = false;
 let isDownloading = false;
 let isInitializing = false;
 
-/**
- * Initializes the Cactus Model
- */
 export const initLocalAI = async () => {
   if (isModelLoaded && cactus) return;
   
   if (isDownloading) {
-      console.log("Download already in progress...");
       while (isDownloading) await new Promise(resolve => setTimeout(resolve, 500));
   }
   
   if (isInitializing) {
-      console.log("Initialization already in progress...");
       while (isInitializing) {
           await new Promise(resolve => setTimeout(resolve, 500));
       }
@@ -65,83 +58,87 @@ export const initLocalAI = async () => {
   }
 };
 
-/**
- * Handles Multi-turn Chat Requests
- */
 export const sendChatRequest = async (history: ChatMessage[]): Promise<string> => {
-  if (!isModelLoaded || !cactus) {
-    await initLocalAI();
-  }
-
+  if (!isModelLoaded || !cactus) await initLocalAI();
   if (!cactus) throw new Error("Cactus failed to initialize");
 
   try {
-    // 1. Sort history to Oldest -> Newest
-    const chronologicalHistory = [...history].reverse();
+    // 1. Sliding Window: Limit history to last 6 turns to save RAM
+    const recentHistory = history.slice(0, 6);
+    const chronologicalHistory = [...recentHistory].reverse();
+    const lastIndex = chronologicalHistory.length - 1;
 
-    const cactusMessages: Message[] = chronologicalHistory.map(msg => {
-      // 2. Sanitize Content: Model crashes on empty string
-      let safeContent = msg.content;
-      if (!safeContent || safeContent.trim() === '') {
-        if (msg.images && msg.images.length > 0) {
-           safeContent = "Analyze these images"; 
-        } else if (msg.imageUri) {
-           safeContent = "Analyze this image";
-        } else {
-           safeContent = "..."; 
+    const cactusMessages: Message[] = chronologicalHistory.map((msg, index) => {
+      // Logic: Only the very last message (Current User Prompt) keeps its images.
+      const isCurrentMessage = index === lastIndex;
+
+      let imagesToProcess: string[] = [];
+      
+      // 2. Aggregate Images (Prioritize Array)
+      if (msg.images && Array.isArray(msg.images) && msg.images.length > 0) {
+        imagesToProcess = [...msg.images];
+      } else if (msg.imageUri) {
+        imagesToProcess = [msg.imageUri];
+      }
+
+      // 3. Prompt Engineering for Multi-Image
+      // If we have multiple images, we MUST tell the model they exist in the text.
+      let finalContent = msg.content || "";
+      
+      if (isCurrentMessage && imagesToProcess.length > 1) {
+        // Create context string: "Image 1: [Image] Image 2: [Image]" logic is handled by model,
+        // but we need to mention it in text for attention.
+        const count = imagesToProcess.length;
+        if (!finalContent.toLowerCase().includes("image")) {
+           finalContent = `(I have sent ${count} images) ${finalContent}`;
         }
+      } 
+      // Fallback if empty
+      if (!finalContent || finalContent.trim() === '') {
+        finalContent = imagesToProcess.length > 0 ? "Analyze these images." : "...";
       }
 
       const formattedMsg: Message = {
         role: msg.role,
-        content: safeContent,
+        content: finalContent,
       };
 
-      // 3. Sanitize Image Paths
-      const imagesToProcess: string[] = [];
-
-      // Handle legacy single image
-      if (msg.imageUri) imagesToProcess.push(msg.imageUri);
-      
-      // Handle new multiple images
-      if (msg.images && msg.images.length > 0) {
-        imagesToProcess.push(...msg.images);
-      }
-
-      if (imagesToProcess.length > 0) {
+      // 4. Attach Images ONLY to current message
+      if (isCurrentMessage && imagesToProcess.length > 0) {
         const cleanPaths = imagesToProcess.map(uri => {
             const decoded = decodeURIComponent(uri);
             return decoded.startsWith('file://') ? decoded.slice(7) : decoded;
         });
         formattedMsg.images = cleanPaths;
-      }
+      } 
 
       return formattedMsg;
     });
 
-    console.log('[LocalAI] Sending request with', cactusMessages.length, 'messages');
+    console.log(`[LocalAI] Sending request. History size: ${cactusMessages.length}`);
+    const lastMsg = cactusMessages[cactusMessages.length - 1];
+    if (lastMsg.images) {
+        console.log(`[LocalAI] Current turn processing ${lastMsg.images.length} images.`);
+    }
+
+    if (global.gc) global.gc();
 
     const result = await cactus.complete({ 
       messages: cactusMessages 
     });
 
-    console.log('[LocalAI] Response received');
     return result.response || "No response from model.";
 
   } catch (error) {
     console.error('[LocalAI] Chat Error:', error);
-    return "I'm having trouble processing that request on-device.";
+    return "Memory limit reached. Please start a new chat.";
   }
 };
 
-/**
- * Single Image Summary (Used by Image Detail Screen)
- */
 export const summarizeImage = async (imagePath: string): Promise<string> => {
     if (!isModelLoaded || !cactus) await initLocalAI();
     if (!cactus) throw new Error("Cactus failed");
 
-    // Sanitize path
     const decodedUri = decodeURIComponent(imagePath);
     const cleanPath = decodedUri.startsWith('file://') ? decodedUri.slice(7) : decodedUri;
     

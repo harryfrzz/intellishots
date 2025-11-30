@@ -225,3 +225,34 @@ export const deleteChatSession = (id: string) => {
     console.error("Failed to delete session:", e);
   }
 };
+
+export const togglePinChatSession = (id: string) => {
+  try {
+    // 1. Get current status
+    const row = db.getFirstSync<{ isPinned: number }>('SELECT isPinned FROM chat_sessions WHERE id = ?', [id]);
+    if (!row) return;
+
+    const newStatus = row.isPinned === 1 ? 0 : 1;
+
+    // 2. Update
+    db.runSync('UPDATE chat_sessions SET isPinned = ? WHERE id = ?', [newStatus, id]);
+    console.log(`Session ${id} pinned status: ${newStatus}`);
+  } catch (e) {
+    console.error("Failed to toggle pin:", e);
+  }
+};
+
+/**
+ * Deletes multiple sessions at once.
+ */
+export const deleteBatchChatSessions = (ids: string[]) => {
+  if (ids.length === 0) return;
+  try {
+    // Create placeholders ?,?,? based on array length
+    const placeholders = ids.map(() => '?').join(',');
+    db.runSync(`DELETE FROM chat_sessions WHERE id IN (${placeholders})`, ids);
+    console.log(`Deleted ${ids.length} sessions.`);
+  } catch (e) {
+    console.error("Failed to batch delete:", e);
+  }
+};

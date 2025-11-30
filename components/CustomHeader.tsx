@@ -27,9 +27,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Fonts } from '@/constants/theme';
 
-// Helper to extract valid icon names from your IconSymbol component
+// Helper to extract valid icon names
 type IconSymbolName = React.ComponentProps<typeof IconSymbol>['name'];
 
+// Fix for Reanimated Type Issues with custom components
 const AnimatedBlurView = Animated.createAnimatedComponent(BlurView);
 const AnimatedText = Animated.createAnimatedComponent(Text) as React.ComponentType<any>;
 
@@ -59,6 +60,11 @@ interface CustomHeaderProps {
   // Right Action Props (Chat/History)
   rightIcon?: IconSymbolName;
   onRightPress?: () => void;
+
+  // --- NEW: Selection Mode Props (Fixes your error) ---
+  isSelectionMode?: boolean;
+  selectedCount?: number;
+  onCancelSelection?: () => void;
 }
 
 export function CustomHeader({ 
@@ -71,7 +77,10 @@ export function CustomHeader({
   showSearch = true,
   showBackButton = false,
   rightIcon,
-  onRightPress
+  onRightPress,
+  isSelectionMode = false,
+  selectedCount = 0,
+  onCancelSelection
 }: CustomHeaderProps) {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -83,13 +92,15 @@ export function CustomHeader({
 
   // --- Layout Constants ---
   const TITLE_HEIGHT = 50;
-  const TAGS_HEIGHT = tags.length > 0 ? 50 : 0; 
+  // If in selection mode, hide tags. Otherwise show tags if available.
+  const TAGS_HEIGHT = (tags.length > 0 && !isSelectionMode) ? 50 : 0; 
   const PADDING_TOP = insets.top;
   
-  // Total height when fully expanded
   const HEADER_MAX_HEIGHT = PADDING_TOP + TITLE_HEIGHT + TAGS_HEIGHT;
-  // Min height when scrolled (Title only)
   const HEADER_MIN_HEIGHT = PADDING_TOP + TITLE_HEIGHT;
+
+  // Determine Title text based on mode
+  const displayTitle = isSelectionMode ? `${selectedCount} Selected` : title;
 
   // --- Search Logic ---
   const toggleSearch = () => {
@@ -112,8 +123,6 @@ export function CustomHeader({
   };
 
   // --- Animated Styles ---
-
-  // 1. Search Bar Expansion
   const animatedSearchStyle = useAnimatedStyle(() => ({
     width: `${searchWidth.value}%`,
   }));
@@ -122,7 +131,6 @@ export function CustomHeader({
     opacity: opacity.value,
   }));
 
-  // 2. Container Height (Shrinks on scroll)
   const containerStyle = useAnimatedStyle(() => {
     if (!scrollY) return { height: HEADER_MAX_HEIGHT };
     const height = interpolate(
@@ -134,7 +142,6 @@ export function CustomHeader({
     return { height };
   });
 
-  // 3. Background Blur Opacity (Fades in on scroll)
   const backgroundStyle = useAnimatedStyle(() => {
     if (!scrollY) return { opacity: 0 };
     return {
@@ -142,24 +149,19 @@ export function CustomHeader({
     };
   });
 
-  // 4. Title Scaling (Shrinks slightly on scroll)
   const titleStyle = useAnimatedStyle(() => {
     if (!scrollY) return {};
     const scale = interpolate(scrollY.value, [0, 50], [1, 0.85], Extrapolation.CLAMP);
-    // If back button is present, we might want less vertical movement to keep alignment
     const translateY = interpolate(scrollY.value, [0, 50], [0, 2], Extrapolation.CLAMP);
     return {
       transform: [{ scale }, { translateY }],
     };
   });
 
-  // 5. Tags Row (Fades out and slides up on scroll)
   const tagsRowStyle = useAnimatedStyle(() => {
     if (!scrollY) return { opacity: 1 };
-    
     const tagsOpacity = interpolate(scrollY.value, [0, 40], [1, 0], Extrapolation.CLAMP);
     const translateY = interpolate(scrollY.value, [0, 40], [0, -20], Extrapolation.CLAMP);
-    
     return {
       opacity: tagsOpacity,
       transform: [{ translateY }],
@@ -170,14 +172,14 @@ export function CustomHeader({
   return (
     <Animated.View style={[styles.headerWrapper, containerStyle]}>
       
-      {/* Background Layer 1: Linear Gradient (Always visible, faint) */}
+      {/* Background Layer 1: Linear Gradient */}
       <LinearGradient
         colors={['rgba(0,0,0,0.8)', 'transparent']}
         style={StyleSheet.absoluteFill}
         pointerEvents="none"
       />
 
-      {/* Background Layer 2: Blur View (Fades in on scroll) */}
+      {/* Background Layer 2: Blur View */}
       <AnimatedBlurView 
         intensity={80} 
         tint="dark" 
@@ -186,69 +188,79 @@ export function CustomHeader({
 
       <View style={[styles.contentContainer, { paddingTop: insets.top }]}>
         
-        {/* --- ROW 1: Top Bar (Back, Title, Actions) --- */}
+        {/* --- ROW 1: Top Bar (Back/Cancel, Title, Actions) --- */}
         <View style={styles.topRow}>
           
-          {/* Left Side: Back Button & Title */}
+          {/* Left Side */}
           <View style={styles.leftContainer}>
-            {showBackButton && (
-              <TouchableOpacity 
-                onPress={() => router.back()} 
-                style={styles.backButton}
-              >
-                <IconSymbol name="chevron.left" size={24} color="#fff" />
-              </TouchableOpacity>
+            {isSelectionMode ? (
+               // Selection Mode: Cancel Button
+               <TouchableOpacity onPress={onCancelSelection} style={styles.cancelButton}>
+                 <Text style={styles.cancelText}>Cancel</Text>
+               </TouchableOpacity>
+            ) : (
+               // Normal Mode: Back Button (if enabled)
+               showBackButton && (
+                <TouchableOpacity 
+                  onPress={() => router.back()} 
+                  style={styles.backButton}
+                >
+                  <IconSymbol name="chevron.left" size={24} color="#fff" />
+                </TouchableOpacity>
+               )
             )}
 
             {!isSearchExpanded && (
               <Animated.View entering={FadeIn} exiting={FadeOut}>
                 <AnimatedText style={[styles.title, titleStyle]} numberOfLines={1}>
-                  {title}
+                  {displayTitle}
                 </AnimatedText>
               </Animated.View>
             )}
           </View>
 
-          {/* Right Side: Search OR Custom Action */}
-          <View style={styles.actionContainer}>
-            {showSearch ? (
-              // SEARCH MODE
-              isSearchExpanded ? (
-                <Animated.View style={[styles.searchContainer, animatedSearchStyle]}>
-                  <Animated.View style={[styles.inputWrapper, animatedInputStyle]}>
-                    <IconSymbol name="magnifyingglass" size={20} color="#ccc" />
-                    <TextInput
-                      style={styles.input}
-                      placeholder="Search..."
-                      placeholderTextColor="#aaa"
-                      value={searchText}
-                      onChangeText={handleSearchTextChange}
-                      autoFocus
-                      returnKeyType="search"
-                    />
-                  </Animated.View>
-                  <TouchableOpacity onPress={toggleSearch} style={styles.closeButton}>
-                    <IconSymbol name="xmark" size={20} color="#fff" />
-                  </TouchableOpacity>
-                </Animated.View>
-              ) : (
-                <TouchableOpacity onPress={toggleSearch} style={styles.iconButton}>
-                  <IconSymbol name="magnifyingglass" size={24} color="#fff" />
-                </TouchableOpacity>
-              )
-            ) : (
-              // CUSTOM ACTION MODE (e.g., New Chat)
-              rightIcon && (
-                <TouchableOpacity onPress={onRightPress} style={styles.iconButton}>
-                  <IconSymbol name={rightIcon} size={22} color="#fff" />
-                </TouchableOpacity>
-              )
-            )}
-          </View>
+          {/* Right Side */}
+          {!isSelectionMode && (
+            <View style={styles.actionContainer}>
+                {showSearch ? (
+                // SEARCH MODE
+                isSearchExpanded ? (
+                    <Animated.View style={[styles.searchContainer, animatedSearchStyle]}>
+                    <Animated.View style={[styles.inputWrapper, animatedInputStyle]}>
+                        <IconSymbol name="magnifyingglass" size={20} color="#ccc" />
+                        <TextInput
+                        style={styles.input}
+                        placeholder="Search..."
+                        placeholderTextColor="#aaa"
+                        value={searchText}
+                        onChangeText={handleSearchTextChange}
+                        autoFocus
+                        returnKeyType="search"
+                        />
+                    </Animated.View>
+                    <TouchableOpacity onPress={toggleSearch} style={styles.closeButton}>
+                        <IconSymbol name="xmark" size={20} color="#fff" />
+                    </TouchableOpacity>
+                    </Animated.View>
+                ) : (
+                    <TouchableOpacity onPress={toggleSearch} style={styles.iconButton}>
+                    <IconSymbol name="magnifyingglass" size={24} color="#fff" />
+                    </TouchableOpacity>
+                )
+                ) : (
+                // CUSTOM ACTION MODE (e.g., New Chat)
+                rightIcon && (
+                    <TouchableOpacity onPress={onRightPress} style={styles.iconButton}>
+                    <IconSymbol name={rightIcon} size={22} color="#fff" />
+                    </TouchableOpacity>
+                )
+                )}
+            </View>
+          )}
         </View>
 
         {/* --- ROW 2: Tags (Collapsible) --- */}
-        {!isSearchExpanded && tags.length > 0 && (
+        {!isSearchExpanded && !isSelectionMode && tags.length > 0 && (
           <Animated.View style={[styles.tagsContainer, tagsRowStyle]}>
             <ScrollView 
               horizontal 
@@ -314,6 +326,18 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.1)',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  cancelButton: {
+    marginRight: 12,
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+    backgroundColor: 'rgba(255,69,58,0.2)', // Light red bg
+    borderRadius: 8,
+  },
+  cancelText: {
+    color: '#ff453a', // iOS Red
+    fontSize: 14,
+    fontWeight: '600',
   },
   title: {
     fontSize: 32,

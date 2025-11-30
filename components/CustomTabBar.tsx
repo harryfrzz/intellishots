@@ -1,7 +1,8 @@
-import { View, StyleSheet, TouchableOpacity, LayoutChangeEvent, Text, Pressable } from 'react-native';
+import { View, StyleSheet, TouchableOpacity, LayoutChangeEvent, Text } from 'react-native';
 import { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { BlurView } from 'expo-blur';
+import { LinearGradient } from 'expo-linear-gradient'; // 1. Import LinearGradient
 import React, { useState, useEffect } from 'react';
 import Animated, { 
   useAnimatedStyle, 
@@ -95,7 +96,6 @@ export function CustomTabBar({ state, descriptors, navigation }: BottomTabBarPro
         { translateY: interpolate(menuAnimation.value, [0, 1], [20, 0]) },
         { scale: interpolate(menuAnimation.value, [0, 1], [0.9, 1]) },
       ],
-      // Hide completely when closed to prevent touch events
       pointerEvents: menuAnimation.value < 0.1 ? 'none' : 'auto', 
     };
   });
@@ -136,6 +136,14 @@ export function CustomTabBar({ state, descriptors, navigation }: BottomTabBarPro
         
         {/* Main Tab Bar (Pill Shape) */}
         <BlurView intensity={80} tint="dark" style={styles.tabBarContainer}>
+          
+          {/* ADDED: Gradient Background Layer */}
+          <LinearGradient
+            colors={['transparent', 'rgba(0,0,0,0.8)']}
+            style={StyleSheet.absoluteFill}
+            pointerEvents="none"
+          />
+
           {dimensions.length > 0 && (
             <Animated.View style={[styles.indicator, animatedStyle]} />
           )}
@@ -144,7 +152,6 @@ export function CustomTabBar({ state, descriptors, navigation }: BottomTabBarPro
               const isFocused = state.index === index;
 
               const onPress = () => {
-                // If menu is open, close it when clicking a tab
                 if (isMenuOpen) toggleMenu();
 
                 const event = navigation.emit({
@@ -162,7 +169,6 @@ export function CustomTabBar({ state, descriptors, navigation }: BottomTabBarPro
               if (route.name === 'index') iconName = 'photo.on.rectangle';
               if (route.name === 'ChatScreen') iconName = 'sparkles';
               if (route.name === 'HistoryScreen') iconName = 'books.vertical.fill';
-
               if (route.name === 'settings') iconName = 'gearshape.fill';
               
               return (
@@ -195,7 +201,6 @@ export function CustomTabBar({ state, descriptors, navigation }: BottomTabBarPro
             tint="dark" 
             style={[
               styles.switcherContainer,
-              // Optional: Highlight button when menu is open
               isMenuOpen && styles.switcherActive
             ]}
           >
@@ -268,6 +273,11 @@ const styles = StyleSheet.create({
   switcherWrapper: {
     borderRadius: 30,
     overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.5,
+    shadowRadius: 10,
+    elevation: 10,
   },
   switcherContainer: {
     height: 60,
@@ -277,18 +287,18 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.15)',
-    backgroundColor: 'rgba(255,255,255,0.05)',
+    backgroundColor: 'rgba(0,0,0,0.2)', // Darker base for glass effect
   },
   switcherActive: {
-    backgroundColor: 'rgba(255,255,255,0.3)',
-    borderColor: 'rgba(255,255,255,0.5)',
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    borderColor: 'rgba(255,255,255,0.8)',
   },
 
   // --- Popup Menu Styles ---
   menuWrapper: {
     position: 'absolute',
-    bottom: 95, // Positioned above the button (60 height + 25 padding + 10 gap)
-    right: '5%', // Aligned roughly with the switcher button
+    bottom: 95, 
+    right: '5%', 
     width: 200,
     borderRadius: 20,
     overflow: 'hidden',
@@ -303,6 +313,7 @@ const styles = StyleSheet.create({
     padding: 12,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.15)',
+    backgroundColor: 'rgba(0,0,0,0.5)',
   },
   menuHeader: {
     color: '#888',
