@@ -8,122 +8,138 @@ import {
   FlatList, 
   KeyboardAvoidingView, 
   Platform, 
-  ActivityIndicator,
-  Image as RNImage 
+  ActivityIndicator, 
+  Image as RNImage,
+  ScrollView 
 } from 'react-native';
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
-import * as ImageManipulator from 'expo-image-manipulator'; // 1. Import Manipulator
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Markdown from 'react-native-markdown-display';
-import Animated, { FadeInUp, Layout } from 'react-native-reanimated';
+import Animated, { FadeInUp, Layout, ZoomIn, ZoomOut } from 'react-native-reanimated';
+import { useLocalSearchParams } from 'expo-router';
 
 import { CustomHeader } from '@/components/CustomHeader';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Fonts } from '@/constants/theme';
-import { saveChatSession } from '@/services/Storage'; // Import the save function
-
-// Import from the service
 import { sendChatRequest, ChatMessage, initLocalAI } from '@/services/LocalAI';
+import { optimizeBatchImages } from '@/services/ImageUtils';
+import { saveChatSession } from '@/services/Storage'; // Updated import
 
 export default function ChatScreen() {
+  const params = useLocalSearchParams();
   const insets = useSafeAreaInsets();
   const flatListRef = useRef<FlatList>(null);
   
+  // --- State ---
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputText, setInputText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [selectedImage, setSelectedImage] = useState<string | null>(null);
-  const handleNewChat = async () => {
-    // 1. If there are messages, save them first
-    if (messages.length > 0) {
-        setIsLoading(true); // Show loader briefly
-        await saveChatSession(messages);
-    }
-    
-    // 2. Reset the screen state
-    setMessages([]);
-    setInputText('');
-    setSelectedImage(null);
-    setIsLoading(false);
-  };
+  const [selectedImages, setSelectedImages] = useState<string[]>([]);
+  
+  // Track the current session ID so we update the same row in DB
+  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
 
   const TAB_BAR_HEIGHT = 85; 
 
-  // Initialize model on mount
+  // --- Effects ---
+
+  // 1. Initialize AI
   useEffect(() => {
     initLocalAI().catch(e => console.log("Background init failed", e));
   }, []);
 
-  const pickImage = async () => {
-    try {
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: false,
-        quality: 1, // Get original first, we will compress manually
-      });
-
-      if (!result.canceled) {
-        const originalUri = result.assets[0].uri;
-        
-        // 2. Compress and Resize immediately
-        // Resizing to 1024px width is standard for VLM efficiency
-        const manipulated = await ImageManipulator.manipulateAsync(
-          originalUri,
-          [{ resize: { width: 512 } }], 
-          { compress: 0.7, format: ImageManipulator.SaveFormat.PNG }
-        );
-
-        setSelectedImage(manipulated.uri);
+  // 2. Handle Incoming Images (from Gallery)
+  useEffect(() => {
+    if (params.incomingImages) {
+      const uris = JSON.parse(params.incomingImages as string) as string[];
+      if (uris.length > 0) {
+        processIncomingImages(uris);
       }
-    } catch (e) {
-      console.error("Error picking/compressing image:", e);
+    }
+  }, [params.incomingImages]);
+
+  // 3. AUTO-SAVE Logic
+  // Whenever messages change, save to DB automatically
+  useEffect(() => {
+    if (messages.length > 0) {
+      const savedId = saveChatSession(messages, currentSessionId);
+      if (savedId && savedId !== currentSessionId) {
+        setCurrentSessionId(savedId); // Lock onto this session ID
+      }
+    }
+  }, [messages]);
+
+  // --- Logic ---
+
+  const handleNewChat = () => {
+    // Just clear the state. The previous chat is already saved by the useEffect.
+    setMessages([]);
+    setInputText('');
+    setSelectedImages([]);
+    setCurrentSessionId(null); // Detach from previous session ID
+    setIsLoading(false);
+  };
+
+  const processIncomingImages = async (uris: string[]) => {
+    const optimized = await optimizeBatchImages(uris);
+    setSelectedImages(prev => [...prev, ...optimized]);
+  };
+
+  const pickImage = async () => {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: false,
+      quality: 1,
+      allowsMultipleSelection: true,
+    });
+
+    if (!result.canceled) {
+      const uris = result.assets.map(a => a.uri);
+      const optimized = await optimizeBatchImages(uris);
+      setSelectedImages(prev => [...prev, ...optimized]);
     }
   };
 
-  const handleSend = async () => {
-    if ((!inputText.trim() && !selectedImage) || isLoading) return;
+  const removeImage = (indexToRemove: number) => {
+    setSelectedImages(prev => prev.filter((_, index) => index !== indexToRemove));
+  };
 
-    // 1. Create User Message object
+  const handleSend = async () => {
+    if ((!inputText.trim() && selectedImages.length === 0) || isLoading) return;
+
     const userMsg: ChatMessage = {
       id: Date.now().toString(),
       role: 'user',
       content: inputText.trim(),
-      imageUri: selectedImage || undefined,
+      images: selectedImages.length > 0 ? [...selectedImages] : undefined,
     };
 
-    // 2. Update UI immediately
-    const newHistory = [userMsg, ...messages]; // Newest first
+    const newHistory = [userMsg, ...messages];
     setMessages(newHistory);
+    
     setInputText('');
-    setSelectedImage(null);
+    setSelectedImages([]);
     setIsLoading(true);
 
     try {
-      // 3. Call Real VLM API
       const responseText = await sendChatRequest(newHistory);
-
       const aiMsg: ChatMessage = {
           id: (Date.now() + 1).toString(),
           role: 'assistant',
           content: responseText,
       };
-
       setMessages(prev => [aiMsg, ...prev]);
     } catch (e) {
       console.error("Chat UI Error:", e);
-      const errorMsg: ChatMessage = {
-          id: Date.now().toString(),
-          role: 'assistant',
-          content: "Sorry, I encountered an error. Please try again.",
-      };
-      setMessages(prev => [errorMsg, ...prev]);
     } finally {
       setIsLoading(false);
     }
   };
+
+  // --- Rendering ---
 
   const renderMessage = ({ item }: { item: ChatMessage }) => {
     const isUser = item.role === 'user';
@@ -141,9 +157,20 @@ export default function ChatScreen() {
           </View>
         )}
         <View style={[styles.bubble, isUser ? styles.bubbleUser : styles.bubbleAi]}>
-          {item.imageUri && (
-            <Image source={{ uri: item.imageUri }} style={styles.messageImage} contentFit="cover" />
+          
+          {item.images && item.images.length > 0 && (
+            <View style={styles.messageImagesGrid}>
+                {item.images.map((imgUri, idx) => (
+                    <Image 
+                        key={idx} 
+                        source={{ uri: imgUri }} 
+                        style={[styles.messageImage, item.images!.length > 1 && styles.messageImageMulti]} 
+                        contentFit="cover" 
+                    />
+                ))}
+            </View>
           )}
+
           {item.content ? (
             isUser ? (
               <Text style={styles.userText}>{item.content}</Text>
@@ -158,15 +185,15 @@ export default function ChatScreen() {
 
   return (
     <View style={styles.container}>
-     <CustomHeader 
+      <CustomHeader 
         title="Chat" 
         showSearch={false} 
         onSearch={() => {}}
-        rightIcon="square.and.pencil" // SF Symbol for New Chat
+        // ADDED NEW CHAT BUTTON
+        rightIcon="square.and.pencil" 
         onRightPress={handleNewChat}
       />
 
-      {/* Messages List */}
       <FlatList
         ref={flatListRef}
         data={messages}
@@ -196,29 +223,34 @@ export default function ChatScreen() {
       >
         <View style={[styles.floatingInputWrapper, { paddingBottom: insets.bottom + TAB_BAR_HEIGHT }]}>
             
-            {/* Image Preview */}
-            {selectedImage && (
-                <Animated.View entering={FadeInUp} style={styles.previewContainer}>
-                    <Image source={{ uri: selectedImage }} style={styles.previewImage} />
-                    <TouchableOpacity onPress={() => setSelectedImage(null)} style={styles.removePreviewBtn}>
-                        <IconSymbol name="xmark.circle.fill" size={20} color="#fff" />
-                    </TouchableOpacity>
+            {/* Image Preview List */}
+            {selectedImages.length > 0 && (
+                <Animated.View entering={FadeInUp} layout={Layout.springify()} style={styles.previewListContainer}>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+                        {selectedImages.map((uri, index) => (
+                            <Animated.View key={index} entering={ZoomIn} exiting={ZoomOut}>
+                                <Image source={{ uri: uri }} style={styles.previewImage} />
+                                <TouchableOpacity onPress={() => removeImage(index)} style={styles.removePreviewBtn}>
+                                    <IconSymbol name="xmark.circle.fill" size={20} color="#fff" />
+                                </TouchableOpacity>
+                            </Animated.View>
+                        ))}
+                    </ScrollView>
                 </Animated.View>
             )}
 
+            {/* Input Row */}
             <View style={styles.inputRow}>
-                {/* Attach Button */}
                 <TouchableOpacity onPress={pickImage} activeOpacity={0.8}>
                     <BlurView intensity={80} tint="dark" style={styles.glassButton}>
                         <IconSymbol name="plus" size={24} color="#fff" />
                     </BlurView>
                 </TouchableOpacity>
 
-                {/* Text Input */}
                 <BlurView intensity={80} tint="dark" style={styles.glassInputContainer}>
                     <TextInput
                         style={styles.textInput}
-                        placeholder="Message..."
+                        placeholder={selectedImages.length > 0 ? "Ask about images..." : "Message..."}
                         placeholderTextColor="#aaa"
                         value={inputText}
                         onChangeText={setInputText}
@@ -227,13 +259,12 @@ export default function ChatScreen() {
                     />
                 </BlurView>
 
-                {/* Send Button */}
                 <TouchableOpacity 
                     onPress={handleSend} 
-                    disabled={(!inputText && !selectedImage) || isLoading}
+                    disabled={(!inputText && selectedImages.length === 0) || isLoading}
                     style={[
                         styles.sendButton,
-                        (!inputText && !selectedImage) && styles.sendButtonDisabled
+                        (!inputText && selectedImages.length === 0) && styles.sendButtonDisabled
                     ]}
                 >
                     {isLoading ? (
@@ -249,153 +280,187 @@ export default function ChatScreen() {
   );
 }
 
+// ==========================================
+// STYLES
+// ==========================================
+
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#000',
+  // --- Layout ---
+  container: { 
+    flex: 1, 
+    backgroundColor: '#000' 
   },
-  listContent: {
-    paddingHorizontal: 16,
-    flexGrow: 1,
+  listContent: { 
+    paddingHorizontal: 16, 
+    flexGrow: 1 
   },
-  keyboardAvoidingView: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
+  
+  // --- Message Bubbles ---
+  messageRow: { 
+    marginVertical: 8, 
+    flexDirection: 'row', 
+    alignItems: 'flex-end', 
+    maxWidth: '100%' 
   },
-  floatingInputWrapper: {
-    paddingHorizontal: 12,
-    paddingTop: 10,
+  rowUser: { 
+    justifyContent: 'flex-end' 
   },
-  inputRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    gap: 8, 
+  rowAi: { 
+    justifyContent: 'flex-start' 
   },
-  glassButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    alignItems: 'center',
-    justifyContent: 'center',
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.15)',
-    backgroundColor: 'rgba(0,0,0,0.3)',
+  bubble: { 
+    borderRadius: 20, 
+    padding: 12, 
+    maxWidth: '85%', 
+    overflow: 'hidden' 
   },
-  glassInputContainer: {
-    flex: 1,
-    borderRadius: 25,
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.15)',
-    backgroundColor: 'rgba(0,0,0,0.3)',
-    minHeight: 44,
-    justifyContent: 'center',
+  bubbleUser: { 
+    backgroundColor: '#007AFF', 
+    borderBottomRightRadius: 4 
   },
-  textInput: {
-    color: '#fff',
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: 12,
-    fontSize: 16,
-    maxHeight: 100,
+  bubbleAi: { 
+    backgroundColor: '#262626', 
+    borderBottomLeftRadius: 4, 
+    marginLeft: 8 
   },
-  sendButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: '#fff', 
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
+  userText: { 
+    color: '#fff', 
+    fontSize: 16, 
+    lineHeight: 22 
   },
-  sendButtonDisabled: {
-    backgroundColor: '#333',
-    opacity: 0.8,
+  aiAvatar: { 
+    marginBottom: 4 
   },
-  previewContainer: {
-    flexDirection: 'row',
-    marginBottom: 8,
-    marginLeft: 52, 
+  avatarGradient: { 
+    width: 28, 
+    height: 28, 
+    borderRadius: 14, 
+    alignItems: 'center', 
+    justifyContent: 'center' 
   },
-  previewImage: {
-    width: 60,
-    height: 60,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.2)',
+
+  // --- Message Images ---
+  messageImagesGrid: { 
+    flexDirection: 'row', 
+    flexWrap: 'wrap', 
+    gap: 4, 
+    marginBottom: 8 
   },
-  removePreviewBtn: {
-    position: 'absolute',
-    top: -8,
-    right: -8,
-    backgroundColor: '#000',
-    borderRadius: 12,
+  messageImage: { 
+    width: 200, 
+    height: 150, 
+    borderRadius: 12 
   },
-  emptyContainer: {
+  messageImageMulti: { 
+    width: 100, 
+    height: 100 
+  },
+
+  // --- Empty State ---
+  emptyContainer: { 
     flex: 1, 
     justifyContent: 'center', 
     alignItems: 'center', 
     transform: [{ scaleY: -1 }], 
-    opacity: 0.5,
-    marginTop: 100,
+    opacity: 0.5, 
+    marginTop: 100 
   },
-  emptyIcon: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: '#1a1a1a',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 16,
+  emptyIcon: { 
+    width: 80, 
+    height: 80, 
+    borderRadius: 40, 
+    backgroundColor: '#1a1a1a', 
+    alignItems: 'center', 
+    justifyContent: 'center', 
+    marginBottom: 16 
   },
-  emptyText: {
-    color: '#666',
-    fontSize: 16,
-    fontFamily: Fonts.rounded,
+  emptyText: { 
+    color: '#666', 
+    fontSize: 16, 
+    fontFamily: Fonts.rounded 
   },
-  messageRow: {
-    marginVertical: 8,
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    maxWidth: '100%',
+
+  // --- Input Area (Floating) ---
+  keyboardAvoidingView: { 
+    position: 'absolute', 
+    bottom: 0, 
+    left: 0, 
+    right: 0 
   },
-  rowUser: { justifyContent: 'flex-end' },
-  rowAi: { justifyContent: 'flex-start' },
-  bubble: {
-    borderRadius: 20,
-    padding: 12,
-    maxWidth: '80%',
-    overflow: 'hidden',
+  floatingInputWrapper: { 
+    paddingHorizontal: 12, 
+    paddingTop: 10 
   },
-  bubbleUser: {
-    backgroundColor: '#007AFF',
-    borderBottomRightRadius: 4,
+  inputRow: { 
+    flexDirection: 'row', 
+    alignItems: 'flex-end', 
+    gap: 8 
   },
-  bubbleAi: {
-    backgroundColor: '#262626',
-    borderBottomLeftRadius: 4,
-    marginLeft: 8,
+  glassButton: { 
+    width: 44, 
+    height: 44, 
+    borderRadius: 22, 
+    alignItems: 'center', 
+    justifyContent: 'center', 
+    overflow: 'hidden', 
+    borderWidth: 1, 
+    borderColor: 'rgba(255,255,255,0.15)', 
+    backgroundColor: 'rgba(0,0,0,0.3)' 
   },
-  userText: { color: '#fff', fontSize: 16, lineHeight: 22 },
-  messageImage: {
-    width: 200,
-    height: 150,
-    borderRadius: 12,
-    marginBottom: 8,
+  glassInputContainer: { 
+    flex: 1, 
+    borderRadius: 25, 
+    overflow: 'hidden', 
+    borderWidth: 1, 
+    borderColor: 'rgba(255,255,255,0.15)', 
+    backgroundColor: 'rgba(0,0,0,0.3)', 
+    minHeight: 44, 
+    justifyContent: 'center' 
   },
-  aiAvatar: { marginBottom: 4 },
-  avatarGradient: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
+  textInput: { 
+    color: '#fff', 
+    paddingHorizontal: 16, 
+    paddingTop: 12, 
+    paddingBottom: 12, 
+    fontSize: 16, 
+    maxHeight: 100 
+  },
+  sendButton: { 
+    width: 44, 
+    height: 44, 
+    borderRadius: 22, 
+    backgroundColor: '#fff', 
+    alignItems: 'center', 
+    justifyContent: 'center', 
+    shadowColor: '#000', 
+    shadowOffset: { width: 0, height: 2 }, 
+    shadowOpacity: 0.3, 
+    shadowRadius: 4 
+  },
+  sendButtonDisabled: { 
+    backgroundColor: '#333', 
+    opacity: 0.8 
+  },
+
+  // --- Preview List ---
+  previewListContainer: { 
+    marginBottom: 10, 
+    marginLeft: 0, 
+    maxHeight: 70 
+  },
+  previewImage: { 
+    width: 60, 
+    height: 60, 
+    borderRadius: 12, 
+    borderWidth: 1, 
+    borderColor: 'rgba(255,255,255,0.2)' 
+  },
+  removePreviewBtn: { 
+    position: 'absolute', 
+    top: -6, 
+    right: -6, 
+    backgroundColor: '#000', 
+    borderRadius: 10 
   },
 });
 

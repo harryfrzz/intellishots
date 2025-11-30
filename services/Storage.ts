@@ -1,6 +1,8 @@
 import * as SQLite from 'expo-sqlite';
 
-// --- Types ---
+// ==========================================
+// TYPES
+// ==========================================
 
 export interface ScreenshotEntry {
   id: string;
@@ -13,7 +15,9 @@ export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
   content: string;
-  imageUri?: string;
+  images?: string[]; // Array of image URIs
+  // Legacy support if you haven't migrated DB yet, though 'images' is preferred now
+  imageUri?: string; 
 }
 
 export interface ChatSession {
@@ -25,16 +29,18 @@ export interface ChatSession {
   isPinned?: boolean;
 }
 
+// ==========================================
+// DATABASE SETUP
+// ==========================================
+
 // Open Database synchronously
 const db = SQLite.openDatabaseSync('cactus_app.db');
-
-// --- Initialization ---
 
 export const initDB = () => {
   db.execSync(`
     PRAGMA journal_mode = WAL;
     
-    -- Table for Screenshots
+    -- Table for Gallery Screenshots/Summaries
     CREATE TABLE IF NOT EXISTS screenshots (
       id TEXT PRIMARY KEY,
       localUri TEXT NOT NULL,
@@ -60,23 +66,37 @@ export const initDB = () => {
 // ==========================================
 
 export const addScreenshot = (entry: ScreenshotEntry) => {
-  db.runSync(
-    'INSERT OR REPLACE INTO screenshots (id, localUri, summary, timestamp) VALUES (?, ?, ?, ?)',
-    [entry.id, entry.localUri, entry.summary, entry.timestamp]
-  );
+  try {
+    db.runSync(
+      'INSERT OR REPLACE INTO screenshots (id, localUri, summary, timestamp) VALUES (?, ?, ?, ?)',
+      [entry.id, entry.localUri, entry.summary, entry.timestamp]
+    );
+  } catch (e) {
+    console.error("Failed to add screenshot:", e);
+  }
 };
 
 export const getScreenshots = (): ScreenshotEntry[] => {
-  return db.getAllSync<ScreenshotEntry>(
-    'SELECT * FROM screenshots ORDER BY timestamp DESC'
-  );
+  try {
+    return db.getAllSync<ScreenshotEntry>(
+      'SELECT * FROM screenshots ORDER BY timestamp DESC'
+    );
+  } catch (e) {
+    console.error("Failed to get screenshots:", e);
+    return [];
+  }
 };
 
 export const getScreenshot = (id: string): ScreenshotEntry | null => {
-  return db.getFirstSync<ScreenshotEntry>(
-    'SELECT * FROM screenshots WHERE id = ?',
-    [id]
-  );
+  try {
+    return db.getFirstSync<ScreenshotEntry>(
+      'SELECT * FROM screenshots WHERE id = ?',
+      [id]
+    );
+  } catch (e) {
+    console.error("Failed to get screenshot:", e);
+    return null;
+  }
 };
 
 // ==========================================
@@ -84,30 +104,36 @@ export const getScreenshot = (id: string): ScreenshotEntry | null => {
 // ==========================================
 
 /**
- * Takes the raw list of messages from the UI, creates a session object,
- * and saves it to SQLite.
+ * Saves or Updates a chat session.
+ * @param messages - The list of messages (Newest first, as coming from UI)
+ * @param existingId - (Optional) If provided, updates this specific session. If null, creates new.
+ * @returns string - The Session ID used/created.
  */
-export const saveChatSession = (messages: ChatMessage[]) => {
-  if (messages.length === 0) return;
+export const saveChatSession = (messages: ChatMessage[], existingId?: string | null): string | null => {
+  if (messages.length === 0) return existingId || null;
 
   try {
-    // 1. Prepare Session Data
-    // Messages come in Newest-First from UI, so [0] is the last message sent
+    // Messages come in Newest-First from UI
     const lastMsg = messages[0]; 
     const firstMsg = messages[messages.length - 1]; 
 
-    const id = Date.now().toString();
+    // Use existing ID if we are continuing a chat, otherwise generate new based on start time
+    const id = existingId || Date.now().toString();
     const timestamp = Date.now();
     
     // Generate a title from the first user message
     let title = firstMsg.content.slice(0, 40);
     if (firstMsg.content.length > 40) title += '...';
-    if (!title && firstMsg.imageUri) title = 'Image Analysis';
+    
+    // Fallback title if content is empty (e.g. image only)
+    if ((!title || title.trim() === '') && (firstMsg.images || firstMsg.imageUri)) {
+        title = 'Image Analysis';
+    } else if (!title || title.trim() === '') {
+        title = 'New Chat';
+    }
 
-    const lastMessagePreview = lastMsg.content || (lastMsg.imageUri ? 'Image attached' : '...');
+    const lastMessagePreview = lastMsg.content || (lastMsg.images || lastMsg.imageUri ? 'Image attached' : '...');
 
-    // 2. Insert into SQLite
-    // We JSON.stringify the messages array to store it in a TEXT column
     db.runSync(
       `INSERT OR REPLACE INTO chat_sessions (id, title, lastMessage, timestamp, messages, isPinned) 
        VALUES (?, ?, ?, ?, ?, ?)`,
@@ -121,10 +147,11 @@ export const saveChatSession = (messages: ChatMessage[]) => {
       ]
     );
 
-    console.log("Chat session saved to SQLite.");
+    return id; // Return the ID so the UI can lock onto it
 
   } catch (e) {
     console.error("Failed to save chat session:", e);
+    return existingId || null;
   }
 };
 
@@ -159,16 +186,8 @@ export const getChatHistory = (): ChatSession[] => {
 };
 
 /**
- * Deletes a specific chat session.
+ * Retrieves a single chat session by ID.
  */
-export const deleteChatSession = (id: string) => {
-  try {
-    db.runSync('DELETE FROM chat_sessions WHERE id = ?', [id]);
-  } catch (e) {
-    console.error("Failed to delete session:", e);
-  }
-};
-
 export const getChatSession = (id: string): ChatSession | null => {
   try {
     const row = db.getFirstSync<{
@@ -193,5 +212,16 @@ export const getChatSession = (id: string): ChatSession | null => {
   } catch (e) {
     console.error("Failed to get chat session:", e);
     return null;
+  }
+};
+
+/**
+ * Deletes a specific chat session.
+ */
+export const deleteChatSession = (id: string) => {
+  try {
+    db.runSync('DELETE FROM chat_sessions WHERE id = ?', [id]);
+  } catch (e) {
+    console.error("Failed to delete session:", e);
   }
 };

@@ -1,10 +1,13 @@
 import { CactusLM, type Message } from 'cactus-react-native';
 import * as FileSystem from 'expo-file-system/legacy';
 
+// Shared Interface
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
   content: string;
+  images?: string[]; // Supports multiple images
+  // Legacy support for single image
   imageUri?: string;
 }
 
@@ -15,6 +18,9 @@ let isModelLoaded = false;
 let isDownloading = false;
 let isInitializing = false;
 
+/**
+ * Initializes the Cactus Model
+ */
 export const initLocalAI = async () => {
   if (isModelLoaded && cactus) return;
   
@@ -59,6 +65,9 @@ export const initLocalAI = async () => {
   }
 };
 
+/**
+ * Handles Multi-turn Chat Requests
+ */
 export const sendChatRequest = async (history: ChatMessage[]): Promise<string> => {
   if (!isModelLoaded || !cactus) {
     await initLocalAI();
@@ -74,10 +83,12 @@ export const sendChatRequest = async (history: ChatMessage[]): Promise<string> =
       // 2. Sanitize Content: Model crashes on empty string
       let safeContent = msg.content;
       if (!safeContent || safeContent.trim() === '') {
-        if (msg.imageUri) {
-           safeContent = "Analyze this image"; // Fallback text if user sent image only
+        if (msg.images && msg.images.length > 0) {
+           safeContent = "Analyze these images"; 
+        } else if (msg.imageUri) {
+           safeContent = "Analyze this image";
         } else {
-           safeContent = "..."; // Fallback empty text
+           safeContent = "..."; 
         }
       }
 
@@ -86,30 +97,30 @@ export const sendChatRequest = async (history: ChatMessage[]): Promise<string> =
         content: safeContent,
       };
 
-      // 3. Sanitize Image Path
-      if (msg.imageUri) {
-        // Fix spaces in path (e.g. "iPhone%20Simulator" -> "iPhone Simulator")
-        const decodedUri = decodeURIComponent(msg.imageUri);
-        
-        // Remove file:// prefix for native C++ module
-        const cleanPath = decodedUri.startsWith('file://') 
-          ? decodedUri.slice(7) 
-          : decodedUri;
-          
-        formattedMsg.images = [cleanPath];
+      // 3. Sanitize Image Paths
+      const imagesToProcess: string[] = [];
+
+      // Handle legacy single image
+      if (msg.imageUri) imagesToProcess.push(msg.imageUri);
+      
+      // Handle new multiple images
+      if (msg.images && msg.images.length > 0) {
+        imagesToProcess.push(...msg.images);
+      }
+
+      if (imagesToProcess.length > 0) {
+        const cleanPaths = imagesToProcess.map(uri => {
+            const decoded = decodeURIComponent(uri);
+            return decoded.startsWith('file://') ? decoded.slice(7) : decoded;
+        });
+        formattedMsg.images = cleanPaths;
       }
 
       return formattedMsg;
     });
 
     console.log('[LocalAI] Sending request with', cactusMessages.length, 'messages');
-    
-    // Debug log to check paths
-    if (cactusMessages.length > 0 && cactusMessages[cactusMessages.length -1].images) {
-        console.log('[LocalAI] Last Image Path:', cactusMessages[cactusMessages.length -1].images![0]);
-    }
 
-    // 4. Generate Response
     const result = await cactus.complete({ 
       messages: cactusMessages 
     });
@@ -119,15 +130,18 @@ export const sendChatRequest = async (history: ChatMessage[]): Promise<string> =
 
   } catch (error) {
     console.error('[LocalAI] Chat Error:', error);
-    return "I'm having trouble processing that request on-device. (Check logs for details)";
+    return "I'm having trouble processing that request on-device.";
   }
 };
 
+/**
+ * Single Image Summary (Used by Image Detail Screen)
+ */
 export const summarizeImage = async (imagePath: string): Promise<string> => {
     if (!isModelLoaded || !cactus) await initLocalAI();
     if (!cactus) throw new Error("Cactus failed");
 
-    // Sanitize path here too
+    // Sanitize path
     const decodedUri = decodeURIComponent(imagePath);
     const cleanPath = decodedUri.startsWith('file://') ? decodedUri.slice(7) : decodedUri;
     
@@ -137,6 +151,11 @@ export const summarizeImage = async (imagePath: string): Promise<string> => {
         images: [cleanPath]
     }];
     
-    const result = await cactus.complete({ messages });
-    return result.response || "";
+    try {
+        const result = await cactus.complete({ messages });
+        return result.response || "No summary generated.";
+    } catch (e) {
+        console.error("Summarize Error:", e);
+        return "Failed to generate summary.";
+    }
 };
