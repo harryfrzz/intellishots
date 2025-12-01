@@ -142,9 +142,15 @@ export const summarizeImage = async (imagePath: string): Promise<string> => {
     const decodedUri = decodeURIComponent(imagePath);
     const cleanPath = decodedUri.startsWith('file://') ? decodedUri.slice(7) : decodedUri;
     
+    // NEW PROMPT: Asks for structured event data
     const messages: Message[] = [{
         role: 'user',
-        content: 'Describe this image details.',
+        content: `Analyze this image in detail. 
+        
+        IMPORTANT: If this image contains a scheduled event, meeting, deadline, or specific time:
+        1. Summarize the visual content naturally.
+        2. At the very end, add a new line starting with "Event Title:" followed by a short, catchy title (max 5 words).
+        3. Add another line starting with "Event Details:" followed by a concise 1-sentence summary of the agenda or context.`,
         images: [cleanPath]
     }];
     

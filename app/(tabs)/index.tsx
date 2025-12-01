@@ -3,14 +3,22 @@ import { StyleSheet, View, TouchableOpacity, useWindowDimensions, Text } from 'r
 import React, { useState, useMemo, useEffect } from 'react';
 import { useRouter, useFocusEffect } from 'expo-router';
 import * as MediaLibrary from 'expo-media-library';
-import Animated, { useSharedValue, useAnimatedScrollHandler, FadeIn, FadeInDown, FadeOutDown } from 'react-native-reanimated';
+import Animated, { 
+  useSharedValue, 
+  useAnimatedScrollHandler, 
+  FadeIn, 
+  FadeInDown, 
+  FadeOutDown 
+} from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BlurView } from 'expo-blur';
 
 import { getScreenshots, ScreenshotEntry } from '@/services/Storage';
 import { CustomHeader, Tag } from '@/components/CustomHeader';
 import { IconSymbol } from '@/components/ui/icon-symbol';
+import { addToCalendar, parseEventFromText } from '@/services/CalendarService';
 
+// Animated Components
 const AnimatedImage = Animated.createAnimatedComponent(Image) as React.ComponentType<any>;
 
 export default function GalleryScreen() {
@@ -18,6 +26,7 @@ export default function GalleryScreen() {
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
 
+  // --- State ---
   const [assets, setAssets] = useState<MediaLibrary.Asset[]>([]);
   const [summaries, setSummaries] = useState<ScreenshotEntry[]>([]);
   const [availableTags, setAvailableTags] = useState<Tag[]>([]);
@@ -26,33 +35,46 @@ export default function GalleryScreen() {
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
 
+  // Filter State
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedTagId, setSelectedTagId] = useState('all'); 
   const [permissionResponse, requestPermission] = MediaLibrary.usePermissions();
 
+  // Scroll State
   const scrollY = useSharedValue(0);
   const scrollHandler = useAnimatedScrollHandler({
     onScroll: (event) => { scrollY.value = event.contentOffset.y; },
   });
 
   const columnWidth = (width - 48) / 2; 
+  // Initial top padding: Status Bar + Title (50) + Tags (50) + spacing
   const contentTopPadding = insets.top + 100 + 10; 
 
+  // 1. Initial Load
   useEffect(() => { loadInitialData(); }, [permissionResponse]);
+
+  // Reload summaries when screen focuses (in case user just generated one)
+  useFocusEffect(
+    React.useCallback(() => {
+      loadSummaries();
+    }, [])
+  );
 
   const loadInitialData = async () => {
     if (permissionResponse?.status !== 'granted') {
       const response = await requestPermission();
       if (response.status !== 'granted') return;
     }
+
     const albums = await MediaLibrary.getAlbumsAsync({ includeSmartAlbums: true });
     const tagsData: Tag[] = [
       { id: 'all', title: 'All Photos' }, 
       ...albums.filter(a => a.assetCount > 0).map(a => ({ id: a.id, title: a.title }))
     ];
     setAvailableTags(tagsData);
+    
+    // Load default assets
     loadAssets('all');
-    loadSummaries();
   };
 
   const loadAssets = async (albumId: string) => {
@@ -88,7 +110,7 @@ export default function GalleryScreen() {
 
   const enterSelectionMode = (id: string) => {
     setIsSelectionMode(true);
-    const newSet = new Set<string>(); 
+    const newSet = new Set<string>();
     newSet.add(id);
     setSelectedItems(newSet);
   };
@@ -99,24 +121,19 @@ export default function GalleryScreen() {
   };
 
   const handleAddToChat = () => {
-    // 1. Get Selected URIs
     const selectedUris = assets
       .filter(a => selectedItems.has(a.id))
       .map(a => a.uri);
 
-    // 2. Reset Mode
     cancelSelection();
 
-    // 3. Navigate to Chat with Params
     router.push({
       pathname: "/(tabs)/ChatScreen",
-      params: { 
-        // Pass JSON string of array
-        incomingImages: JSON.stringify(selectedUris) 
-      }
+      params: { incomingImages: JSON.stringify(selectedUris) }
     });
   };
 
+  // --- Filtering ---
   const displayedAssets = useMemo(() => {
     let filtered = assets;
     if (searchQuery.trim()) {
@@ -132,8 +149,13 @@ export default function GalleryScreen() {
   const evenAssets = displayedAssets.filter((_, i) => i % 2 === 0);
   const oddAssets = displayedAssets.filter((_, i) => i % 2 !== 0);
 
+  // --- Render Item ---
   const renderImageCard = (item: MediaLibrary.Asset) => {
     const isSelected = selectedItems.has(item.id);
+    
+    // Check for summary and event data
+    const summaryEntry = summaries.find(s => s.id === item.id);
+    const hasEvent = summaryEntry ? !!parseEventFromText(summaryEntry.summary) : false;
 
     return (
       <Animated.View 
@@ -156,22 +178,22 @@ export default function GalleryScreen() {
           activeOpacity={0.8}
           style={[
             styles.cardWrapper,
-            isSelected && styles.cardSelected // Scale down or border effect
+            isSelected && styles.cardSelected 
           ]}
         >
           <AnimatedImage 
-            sharedTransitionTag={!isSelectionMode ? `image-${item.id}` : undefined} // Disable transition in selection mode
+            sharedTransitionTag={!isSelectionMode ? `image-${item.id}` : undefined} 
             source={{ uri: item.uri }} 
             style={[
               styles.image, 
               { width: columnWidth, height: (columnWidth * item.height) / item.width },
-              isSelected && { opacity: 0.7 } // Dim image when selected
+              isSelected && { opacity: 0.7 } 
             ]} 
             contentFit="cover"
             transition={500} 
           />
           
-          {/* Checkmark Overlay */}
+          {/* Checkmark Overlay (Selection Mode) */}
           {isSelectionMode && (
             <View style={styles.selectionOverlay}>
               <View style={[styles.checkbox, isSelected && styles.checkboxSelected]}>
@@ -179,6 +201,21 @@ export default function GalleryScreen() {
               </View>
             </View>
           )}
+
+          {/* Add Event Button (Normal Mode + Has Event Detected) */}
+          {!isSelectionMode && hasEvent && (
+            <View style={styles.eventBadgeContainer}>
+                <TouchableOpacity 
+    // We pass only the summary string now, title is auto-extracted
+    onPress={() => addToCalendar(summaryEntry!.summary)} 
+    style={styles.eventBadge}
+>
+    <IconSymbol name="calendar" size={14} color="#fff" />
+    <Text style={styles.eventBadgeText}>Add Event</Text>
+</TouchableOpacity>
+            </View>
+          )}
+
         </TouchableOpacity>
       </Animated.View>
     );
@@ -190,11 +227,10 @@ export default function GalleryScreen() {
         title={isSelectionMode ? `${selectedItems.size} Selected` : "Gallery"}
         onSearch={setSearchQuery}
         scrollY={scrollY}
-        tags={isSelectionMode ? [] : availableTags} // Hide tags in selection mode
+        tags={isSelectionMode ? [] : availableTags}
         selectedTag={selectedTagId}
         onSelectTag={(id) => { setSelectedTagId(id); loadAssets(id); }}
         showSearch={!isSelectionMode}
-        // Show Cancel button if selecting
         rightIcon={isSelectionMode ? 'xmark' : undefined}
         onRightPress={cancelSelection}
       />
@@ -210,14 +246,21 @@ export default function GalleryScreen() {
           <View style={styles.column}>{evenAssets.map(renderImageCard)}</View>
           <View style={styles.column}>{oddAssets.map(renderImageCard)}</View>
         </View>
+        
+        {displayedAssets.length === 0 && (
+            <View style={{ padding: 40, alignItems: 'center' }}>
+                <IconSymbol name="photo" size={50} color="#333" />
+                <Text style={{color:'#666', marginTop: 10}}>No photos found.</Text>
+            </View>
+        )}
       </Animated.ScrollView>
 
-      {/* Floating Context Menu (Add to Chat) */}
+      {/* Floating Add to Chat Menu */}
       {isSelectionMode && selectedItems.size > 0 && (
         <Animated.View 
           entering={FadeInDown.springify()} 
           exiting={FadeOutDown}
-          style={[styles.floatingMenu, { bottom: 100 }]} // Adjust based on tab bar
+          style={[styles.floatingMenu, { bottom: 100 }]} 
         >
           <BlurView intensity={90} tint="dark" style={styles.menuBlur}>
             <TouchableOpacity onPress={handleAddToChat} style={styles.menuButton}>
@@ -236,60 +279,24 @@ const styles = StyleSheet.create({
   scrollContent: { paddingHorizontal: 16, paddingBottom: 150 },
   masonryContainer: { flexDirection: 'row', gap: 16 },
   column: { flex: 1, gap: 16 },
+  
   cardWrapper: { borderRadius: 12, overflow: 'hidden', backgroundColor: '#2a2a2a' },
-  cardSelected: {
-    transform: [{ scale: 0.95 }],
-    borderWidth: 2,
-    borderColor: '#4facfe',
-  },
+  cardSelected: { transform: [{ scale: 0.95 }], borderWidth: 2, borderColor: '#4facfe' },
   image: { backgroundColor: '#333' },
   
-  // Selection Styles
-  selectionOverlay: {
-    position: 'absolute',
-    top: 8,
-    right: 8,
-    zIndex: 10,
-  },
-  checkbox: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    borderWidth: 2,
-    borderColor: '#fff',
-    backgroundColor: 'rgba(0,0,0,0.3)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  checkboxSelected: {
-    backgroundColor: '#fff',
-    borderColor: '#fff',
-  },
+  // Selection
+  selectionOverlay: { position: 'absolute', top: 8, right: 8, zIndex: 10 },
+  checkbox: { width: 24, height: 24, borderRadius: 12, borderWidth: 2, borderColor: '#fff', backgroundColor: 'rgba(0,0,0,0.3)', alignItems: 'center', justifyContent: 'center' },
+  checkboxSelected: { backgroundColor: '#fff', borderColor: '#fff' },
+
+  // Event Badge
+  eventBadgeContainer: { position: 'absolute', bottom: 8, left: 8, zIndex: 5 },
+  eventBadge: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.6)', paddingVertical: 4, paddingHorizontal: 8, borderRadius: 12, gap: 4, borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)' },
+  eventBadgeText: { color: '#fff', fontSize: 10, fontWeight: '600' },
 
   // Floating Menu
-  floatingMenu: {
-    position: 'absolute',
-    alignSelf: 'center',
-    borderRadius: 30,
-    overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 10,
-  },
-  menuBlur: {
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-  },
-  menuButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  menuText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-  }
+  floatingMenu: { position: 'absolute', alignSelf: 'center', borderRadius: 30, overflow: 'hidden', shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8, elevation: 10 },
+  menuBlur: { paddingVertical: 12, paddingHorizontal: 24 },
+  menuButton: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  menuText: { color: '#fff', fontSize: 16, fontWeight: '600' }
 });

@@ -10,7 +10,12 @@
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.anonymous.intellishots"
+      "bundleIdentifier": "com.anonymous.intellishots",
+      "infoPlist": {
+        "NSCalendarsUsageDescription": "This app needs access to your calendar to create events from image summaries.",
+        "NSCalendarsFullAccessUsageDescription": "This app needs full access to your calendar to save events.",
+        "NSRemindersUsageDescription": "This app needs access to reminders to save tasks."
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -20,7 +25,8 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "com.anonymous.intellishots"
     },
     "web": {
       "output": "static",
