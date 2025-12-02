@@ -74,26 +74,20 @@ export const sendChatRequest = async (history: ChatMessage[]): Promise<string> =
 
       let imagesToProcess: string[] = [];
       
-      // 2. Aggregate Images (Prioritize Array)
       if (msg.images && Array.isArray(msg.images) && msg.images.length > 0) {
         imagesToProcess = [...msg.images];
       } else if (msg.imageUri) {
         imagesToProcess = [msg.imageUri];
       }
 
-      // 3. Prompt Engineering for Multi-Image
-      // If we have multiple images, we MUST tell the model they exist in the text.
       let finalContent = msg.content || "";
       
       if (isCurrentMessage && imagesToProcess.length > 1) {
-        // Create context string: "Image 1: [Image] Image 2: [Image]" logic is handled by model,
-        // but we need to mention it in text for attention.
         const count = imagesToProcess.length;
         if (!finalContent.toLowerCase().includes("image")) {
            finalContent = `(I have sent ${count} images) ${finalContent}`;
         }
       } 
-      // Fallback if empty
       if (!finalContent || finalContent.trim() === '') {
         finalContent = imagesToProcess.length > 0 ? "Analyze these images." : "...";
       }
@@ -103,7 +97,6 @@ export const sendChatRequest = async (history: ChatMessage[]): Promise<string> =
         content: finalContent,
       };
 
-      // 4. Attach Images ONLY to current message
       if (isCurrentMessage && imagesToProcess.length > 0) {
         const cleanPaths = imagesToProcess.map(uri => {
             const decoded = decodeURIComponent(uri);
@@ -116,11 +109,7 @@ export const sendChatRequest = async (history: ChatMessage[]): Promise<string> =
     });
 
     console.log(`[LocalAI] Sending request. History size: ${cactusMessages.length}`);
-    const lastMsg = cactusMessages[cactusMessages.length - 1];
-    if (lastMsg.images) {
-        console.log(`[LocalAI] Current turn processing ${lastMsg.images.length} images.`);
-    }
-
+    
     if (global.gc) global.gc();
 
     const result = await cactus.complete({ 
@@ -142,15 +131,21 @@ export const summarizeImage = async (imagePath: string): Promise<string> => {
     const decodedUri = decodeURIComponent(imagePath);
     const cleanPath = decodedUri.startsWith('file://') ? decodedUri.slice(7) : decodedUri;
     
-    // NEW PROMPT: Asks for structured event data
+    // UPDATED PROMPT: Strictly conditional event parsing
     const messages: Message[] = [{
         role: 'user',
-        content: `Analyze this image in detail. 
+        content: `You are an intelligent assistant. Analyze this image.
+
+        1. Provide a concise, natural summary of the visual content.
+
+        2. Check if the image text describes a specific scheduled event (like a meeting, concert, deadline, or party) with a clear Date and Time.
+
+        IF (and only if) a specific date/time is found, append these exact lines at the bottom:
         
-        IMPORTANT: If this image contains a scheduled event, meeting, deadline, or specific time:
-        1. Summarize the visual content naturally.
-        2. At the very end, add a new line starting with "Event Title:" followed by a short, catchy title (max 5 words).
-        3. Add another line starting with "Event Details:" followed by a concise 1-sentence summary of the agenda or context.`,
+        Event Title: [Short Title]
+        Event Details: [The Date and Time found] - [Brief Context]
+
+        If no date is found, do NOT add the Event lines.`,
         images: [cleanPath]
     }];
     

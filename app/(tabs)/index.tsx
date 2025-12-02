@@ -16,9 +16,7 @@ import { BlurView } from 'expo-blur';
 import { getScreenshots, ScreenshotEntry } from '@/services/Storage';
 import { CustomHeader, Tag } from '@/components/CustomHeader';
 import { IconSymbol } from '@/components/ui/icon-symbol';
-import { addToCalendar, parseEventFromText } from '@/services/CalendarService';
 
-// Animated Components
 const AnimatedImage = Animated.createAnimatedComponent(Image) as React.ComponentType<any>;
 
 export default function GalleryScreen() {
@@ -26,7 +24,6 @@ export default function GalleryScreen() {
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
 
-  // --- State ---
   const [assets, setAssets] = useState<MediaLibrary.Asset[]>([]);
   const [summaries, setSummaries] = useState<ScreenshotEntry[]>([]);
   const [availableTags, setAvailableTags] = useState<Tag[]>([]);
@@ -35,25 +32,20 @@ export default function GalleryScreen() {
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
 
-  // Filter State
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedTagId, setSelectedTagId] = useState('all'); 
   const [permissionResponse, requestPermission] = MediaLibrary.usePermissions();
 
-  // Scroll State
   const scrollY = useSharedValue(0);
   const scrollHandler = useAnimatedScrollHandler({
     onScroll: (event) => { scrollY.value = event.contentOffset.y; },
   });
 
   const columnWidth = (width - 48) / 2; 
-  // Initial top padding: Status Bar + Title (50) + Tags (50) + spacing
   const contentTopPadding = insets.top + 100 + 10; 
 
-  // 1. Initial Load
   useEffect(() => { loadInitialData(); }, [permissionResponse]);
 
-  // Reload summaries when screen focuses (in case user just generated one)
   useFocusEffect(
     React.useCallback(() => {
       loadSummaries();
@@ -72,8 +64,6 @@ export default function GalleryScreen() {
       ...albums.filter(a => a.assetCount > 0).map(a => ({ id: a.id, title: a.title }))
     ];
     setAvailableTags(tagsData);
-    
-    // Load default assets
     loadAssets('all');
   };
 
@@ -133,7 +123,6 @@ export default function GalleryScreen() {
     });
   };
 
-  // --- Filtering ---
   const displayedAssets = useMemo(() => {
     let filtered = assets;
     if (searchQuery.trim()) {
@@ -149,13 +138,8 @@ export default function GalleryScreen() {
   const evenAssets = displayedAssets.filter((_, i) => i % 2 === 0);
   const oddAssets = displayedAssets.filter((_, i) => i % 2 !== 0);
 
-  // --- Render Item ---
   const renderImageCard = (item: MediaLibrary.Asset) => {
     const isSelected = selectedItems.has(item.id);
-    
-    // Check for summary and event data
-    const summaryEntry = summaries.find(s => s.id === item.id);
-    const hasEvent = summaryEntry ? !!parseEventFromText(summaryEntry.summary) : false;
 
     return (
       <Animated.View 
@@ -201,21 +185,6 @@ export default function GalleryScreen() {
               </View>
             </View>
           )}
-
-          {/* Add Event Button (Normal Mode + Has Event Detected) */}
-          {!isSelectionMode && hasEvent && (
-            <View style={styles.eventBadgeContainer}>
-                <TouchableOpacity 
-    // We pass only the summary string now, title is auto-extracted
-    onPress={() => addToCalendar(summaryEntry!.summary)} 
-    style={styles.eventBadge}
->
-    <IconSymbol name="calendar" size={14} color="#fff" />
-    <Text style={styles.eventBadgeText}>Add Event</Text>
-</TouchableOpacity>
-            </View>
-          )}
-
         </TouchableOpacity>
       </Animated.View>
     );
@@ -288,11 +257,6 @@ const styles = StyleSheet.create({
   selectionOverlay: { position: 'absolute', top: 8, right: 8, zIndex: 10 },
   checkbox: { width: 24, height: 24, borderRadius: 12, borderWidth: 2, borderColor: '#fff', backgroundColor: 'rgba(0,0,0,0.3)', alignItems: 'center', justifyContent: 'center' },
   checkboxSelected: { backgroundColor: '#fff', borderColor: '#fff' },
-
-  // Event Badge
-  eventBadgeContainer: { position: 'absolute', bottom: 8, left: 8, zIndex: 5 },
-  eventBadge: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.6)', paddingVertical: 4, paddingHorizontal: 8, borderRadius: 12, gap: 4, borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)' },
-  eventBadgeText: { color: '#fff', fontSize: 10, fontWeight: '600' },
 
   // Floating Menu
   floatingMenu: { position: 'absolute', alignSelf: 'center', borderRadius: 30, overflow: 'hidden', shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8, elevation: 10 },

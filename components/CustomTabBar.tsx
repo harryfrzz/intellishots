@@ -15,7 +15,6 @@ import Animated, {
 // 1. Define your available models
 const MODELS = [
   { id: 'default', name: 'LFM2-VL-450M' },
-  { id: 'smolvlm', name: 'smolVLM' },
 ];
 
 export function CustomTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
