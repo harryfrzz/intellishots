@@ -1,15 +1,15 @@
-import { View, StyleSheet, TouchableOpacity, LayoutChangeEvent, Text } from 'react-native';
-import { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { IconSymbol } from '@/components/ui/icon-symbol';
+import { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient'; // 1. Import LinearGradient
-import React, { useState, useEffect } from 'react';
-import Animated, { 
-  useAnimatedStyle, 
-  useSharedValue, 
-  withTiming, 
-  Easing,
-  interpolate,
+import React, { useEffect, useState } from 'react';
+import { LayoutChangeEvent, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import Animated, {
+    Easing,
+    interpolate,
+    useAnimatedStyle,
+    useSharedValue,
+    withTiming,
 } from 'react-native-reanimated';
 
 // 1. Define your available models
@@ -164,10 +164,10 @@ export function CustomTabBar({ state, descriptors, navigation }: BottomTabBarPro
                 }
               };
 
-              let iconName = 'house.fill';
+              let iconName = 'home';
               if (route.name === 'index') iconName = 'photo.on.rectangle';
-              if (route.name === 'ChatScreen') iconName = 'sparkles';
-              if (route.name === 'HistoryScreen') iconName = 'books.vertical.fill';
+              if (route.name === 'ChatScreen') iconName = 'chat';
+              if (route.name === 'HistoryScreen') iconName = 'stack';
               if (route.name === 'settings') iconName = 'gearshape.fill';
               
               return (

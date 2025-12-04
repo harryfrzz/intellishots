@@ -1,36 +1,107 @@
-// Fallback for using MaterialIcons on Android and web.
+import React from 'react';
+import { StyleProp, ViewStyle } from 'react-native';
 
-import MaterialIcons from '@expo/vector-icons/MaterialIcons';
-import { SymbolWeight, SymbolViewProps } from 'expo-symbols';
-import { ComponentProps } from 'react';
-import { OpaqueColorValue, type StyleProp, type TextStyle } from 'react-native';
+// Import Lucide React Native icons
+import {
+  ArrowUp,
+  BookOpen,
+  Calendar,
+  CalendarPlus,
+  Check,
+  CheckCircle,
+  ChevronLeft,
+  ChevronRight,
+  Clock,
+  Copy,
+  History,
+  Home,
+  Image,
+  ImageIcon,
+  Info,
+  Layers,
+  LucideIcon,
+  MapPin,
+  MapPinOff,
+  Plus,
+  RefreshCw,
+  Search,
+  Settings,
+  Sparkles,
+  SquarePen,
+  Trash2,
+  X,
+  XCircle,
+} from 'lucide-react-native';
 
-type IconMapping = Record<SymbolViewProps['name'], ComponentProps<typeof MaterialIcons>['name']>;
-type IconSymbolName = keyof typeof MAPPING;
+// 1. Map your existing SF Symbol names to Lucide icons
+const ICON_MAPPING: Record<string, LucideIcon> = {
+  // Tabs (Lucide names)
+  'home': Home,
+  'image': Image,
+  'sparkles': Sparkles,
+  'clock': Clock,
+  'book-open': BookOpen,
+  'layers': Layers,
+  'history': History,
+  'settings': Settings,
+  
+  // Legacy SF Symbol names (for compatibility)
+  'house.fill': Home,
+  'photo.on.rectangle': Image,
+  'clock.fill': Clock,
+  'books.vertical.fill': BookOpen,
+  'square.stack.fill': Layers,
+  'gearshape.fill': Settings,
+
+  // UI Elements (Lucide names)
+  'trash': Trash2,
+  'info': Info,
+  'chevron-left': ChevronLeft,
+  'chevron-right': ChevronRight,
+  'search': Search,
+  'x': X,
+  'x-circle': XCircle,
+  'arrow-up': ArrowUp,
+  'plus': Plus,
+  'copy': Copy,
+  'refresh-cw': RefreshCw,
+  'calendar': Calendar,
+  'calendar-plus': CalendarPlus,
+  'map-pin': MapPin,
+  'map-pin-off': MapPinOff,
+  'check': Check,
+  'check-circle': CheckCircle,
+  'square-pen': SquarePen,
+  'image-icon': ImageIcon,
+
+  // Legacy SF Symbol names (for compatibility)
+  'trash.fill': Trash2,
+  'info.circle': Info,
+  'chevron.left': ChevronLeft,
+  'chevron.right': ChevronRight,
+  'magnifyingglass': Search,
+  'xmark': X,
+  'xmark.circle.fill': XCircle,
+  'arrow.up': ArrowUp,
+  'circle.stack': Layers,
+  'doc.on.doc': Copy,
+  'arrow.clockwise': RefreshCw,
+  'calendar.badge.plus': CalendarPlus,
+  'pin': MapPin,
+  'pin.fill': MapPin,
+  'pin.slash': MapPinOff,
+  'checkmark': Check,
+  'checkmark.circle': CheckCircle,
+  'checkmark.circle.fill': CheckCircle,
+  'square.and.pencil': SquarePen,
+  'photo': ImageIcon,
+};
+
+// 2. Define the Valid Icon Names based on the mapping keys
+export type IconSymbolName = keyof typeof ICON_MAPPING;
 
 /**
- * Add your SF Symbols to Material Icons mappings here.
- * - see Material Icons in the [Icons Directory](https://icons.expo.fyi).
- * - see SF Symbols in the [SF Symbols](https://developer.apple.com/sf-symbols/) app.
- */
-const MAPPING = {
-  'house.fill': 'home',
-  'paperplane.fill': 'send',
-  'chevron.left.forwardslash.chevron.right': 'code',
-  'chevron.right': 'chevron-right',
-  'sparkles': 'auto-awesome',
-  'magnifyingglass': 'search',
-  'xmark': 'close',
-  'gearshape.fill': 'settings',
-  'photo.on.rectangle': 'photo-library',
-  'clock.fill': 'history',
-  'bubble.left.and.bubble.right.fill': 'chat',
-} as IconMapping;
-
-/**
- * An icon component that uses native SF Symbols on iOS, and Material Icons on Android and web.
- * This ensures a consistent look across platforms, and optimal resource usage.
- * Icon `name`s are based on SF Symbols and require manual mapping to Material Icons.
+ * An Icon component that wraps Lucide icons but keeps your existing API compatible.
  */
 export function IconSymbol({
   name,
@@ -40,9 +111,18 @@ export function IconSymbol({
 }: {
   name: IconSymbolName;
   size?: number;
-  color: string | OpaqueColorValue;
-  style?: StyleProp<TextStyle>;
-  weight?: SymbolWeight;
+  color: string;
+  style?: StyleProp<ViewStyle>;
+  weight?: string; // Optional: kept for API compatibility
 }) {
-  return <MaterialIcons color={color} size={size} name={MAPPING[name]} style={style} />;
+  const IconComponent = ICON_MAPPING[name];
+
+  if (!IconComponent) {
+    console.warn(`Icon "${name}" not found in mapping.`);
+    return null;
+  }
+
+  // Lucide uses 'color' for stroke and 'size' for height/width
+  return <IconComponent color={color} size={size} style={style} />;
+
 }

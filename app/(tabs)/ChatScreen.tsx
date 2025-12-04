@@ -29,7 +29,6 @@ import { sendChatRequest, ChatMessage, initLocalAI } from '@/services/LocalAI';
 import { optimizeBatchImages } from '@/services/ImageUtils';
 import { saveChatSession } from '@/services/Storage';
 
-// Height of your Custom Tab Bar (60px height + 25px bottom padding)
 const TAB_BAR_HEIGHT = 85; 
 const MAX_IMAGES = 3;
 
@@ -161,37 +160,41 @@ export default function ChatScreen() {
             </LinearGradient>
           </View>
         )}
-        <View style={[styles.bubble, isUser ? styles.bubbleUser : styles.bubbleAi]}>
-          {item.images && item.images.length > 0 && (
-            <View style={styles.messageImagesGrid}>
-                {item.images.map((imgUri, idx) => (
-                    <Image 
-                        key={idx} 
-                        source={{ uri: imgUri }} 
-                        style={[
-                            styles.messageImage, 
-                            item.images!.length > 1 && styles.messageImageMulti 
-                        ]} 
-                        contentFit="cover" 
-                    />
-                ))}
+        
+        <View style={{maxWidth: '85%'}}>
+            <View style={[styles.bubble, isUser ? styles.bubbleUser : styles.bubbleAi]}>
+            {item.images && item.images.length > 0 && (
+                <View style={styles.messageImagesGrid}>
+                    {item.images.map((imgUri, idx) => (
+                        <Image 
+                            key={idx} 
+                            source={{ uri: imgUri }} 
+                            style={[
+                                styles.messageImage, 
+                                item.images!.length > 1 && styles.messageImageMulti 
+                            ]} 
+                            contentFit="cover" 
+                        />
+                    ))}
+                </View>
+            )}
+            {item.content ? (
+                isUser ? (
+                <Text style={styles.userText}>{item.content}</Text>
+                ) : (
+                <Markdown style={markdownStyles}>{item.content}</Markdown>
+                )
+            ) : null}
             </View>
-          )}
-          {item.content ? (
-            isUser ? (
-              <Text style={styles.userText}>{item.content}</Text>
-            ) : (
-              <Markdown style={markdownStyles}>{item.content}</Markdown>
-            )
-          ) : null}
         </View>
       </Animated.View>
     );
   };
 
-  // Calculate height for input area + margin
-  // Used for list padding
-  const INPUT_AREA_HEIGHT = 80; 
+  // Dimensions for padding logic
+  // Tab Bar (~85) + Input Bar (~65) + Margin (~20) = ~170
+  const VISUAL_BOTTOM_PADDING = TAB_BAR_HEIGHT + 85; 
+  const VISUAL_TOP_PADDING = insets.top + 60;
 
   return (
     <View style={styles.container}>
@@ -211,10 +214,11 @@ export default function ChatScreen() {
         contentContainerStyle={[
           styles.listContent, 
           { 
-            paddingTop: insets.top + 80, 
-            // Add padding at bottom equal to input height + some buffer
-            // so last message is visible above input bar
-            paddingBottom: INPUT_AREA_HEIGHT + 20 
+            // Inverted List Logic:
+            // paddingBottom => Visual TOP (Header spacing)
+            // paddingTop => Visual BOTTOM (Input bar spacing)
+            paddingBottom: VISUAL_TOP_PADDING, 
+            paddingTop: VISUAL_BOTTOM_PADDING 
           }
         ]}
         inverted
@@ -229,16 +233,15 @@ export default function ChatScreen() {
         }
       />
 
-      {/* Floating Input Area */}
+      {/* --- Unified Floating Input Bar --- */}
       <KeyboardAvoidingView 
         behavior={Platform.OS === 'ios' ? 'padding' : undefined} 
         keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
-        // FIX: Anchor to the top of the Tab Bar, not the bottom of the screen
         style={[styles.keyboardAvoidingView, { bottom: TAB_BAR_HEIGHT }]}
       >
         <View style={styles.floatingInputWrapper}>
             
-            {/* Image Preview */}
+            {/* 1. Image Previews */}
             {selectedImages.length > 0 && (
                 <Animated.View entering={FadeInUp} layout={Layout.springify()} style={styles.previewListContainer}>
                     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
@@ -254,40 +257,42 @@ export default function ChatScreen() {
                 </Animated.View>
             )}
 
-            <View style={styles.inputRow}>
-                <TouchableOpacity onPress={pickImage} activeOpacity={0.8}>
-                    <BlurView intensity={80} tint="dark" style={styles.glassButton}>
-                        <IconSymbol name="plus" size={24} color="#fff" />
-                    </BlurView>
-                </TouchableOpacity>
+            {/* 2. Unified Glass Dock */}
+            <View style={styles.glassDockOuter}>
+                <BlurView intensity={80} tint="dark" style={styles.glassDockInner}>
+                    
+                    <TouchableOpacity onPress={pickImage} style={styles.attachButton}>
+                        <IconSymbol name="plus" size={24} color="#ccc" />
+                    </TouchableOpacity>
 
-                <BlurView intensity={80} tint="dark" style={styles.glassInputContainer}>
                     <TextInput
                         style={styles.textInput}
-                        placeholder={selectedImages.length > 0 ? `Ask about ${selectedImages.length} images...` : "Message..."}
-                        placeholderTextColor="#aaa"
+                        placeholder={selectedImages.length > 0 ? `Ask about ${selectedImages.length} images...` : "Message Cactus..."}
+                        placeholderTextColor="#888"
                         value={inputText}
                         onChangeText={setInputText}
                         multiline
                         maxLength={500}
                     />
-                </BlurView>
 
-                <TouchableOpacity 
-                    onPress={handleSend} 
-                    disabled={(!inputText && selectedImages.length === 0) || isLoading}
-                    style={[
-                        styles.sendButton,
-                        (!inputText && selectedImages.length === 0) && styles.sendButtonDisabled
-                    ]}
-                >
-                    {isLoading ? (
-                        <ActivityIndicator color="#000" size="small" />
-                    ) : (
-                        <IconSymbol name="arrow.up" size={20} color="#000" />
-                    )}
-                </TouchableOpacity>
+                    <TouchableOpacity 
+                        onPress={handleSend} 
+                        disabled={(!inputText && selectedImages.length === 0) || isLoading}
+                        style={[
+                            styles.sendButton,
+                            (!inputText && selectedImages.length === 0) && styles.sendButtonDisabled
+                        ]}
+                    >
+                        {isLoading ? (
+                            <ActivityIndicator color="#000" size="small" />
+                        ) : (
+                            <IconSymbol name="arrow.up" size={20} color="#000" />
+                        )}
+                    </TouchableOpacity>
+
+                </BlurView>
             </View>
+
         </View>
       </KeyboardAvoidingView>
     </View>
@@ -298,46 +303,92 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#000' },
   listContent: { paddingHorizontal: 16, flexGrow: 1 },
   
-  // Adjusted KeyboardAvoidingView
+  // Input Area Layout
   keyboardAvoidingView: { 
     position: 'absolute', 
     left: 0, 
     right: 0,
-    // Bottom property is handled dynamically inline to match TAB_BAR_HEIGHT
   },
-  
   floatingInputWrapper: { 
-    paddingHorizontal: 12, 
-    paddingTop: 10,
-    paddingBottom: 10, // Small buffer from the tab bar
+    paddingHorizontal: 16, 
+    paddingBottom: 10,
+  },
+
+  // Glass Dock Styles
+  glassDockOuter: {
+    borderRadius: 35,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+  },
+  glassDockInner: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    padding: 8,
+    backgroundColor: 'rgba(30,30,30,0.6)', 
   },
   
-  inputRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 8 },
-  
-  glassButton: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', overflow: 'hidden', borderWidth: 1, borderColor: 'rgba(255,255,255,0.15)', backgroundColor: 'rgba(0,0,0,0.3)' },
-  glassInputContainer: { flex: 1, borderRadius: 25, overflow: 'hidden', borderWidth: 1, borderColor: 'rgba(255,255,255,0.15)', backgroundColor: 'rgba(0,0,0,0.3)', minHeight: 44, justifyContent: 'center' },
-  textInput: { color: '#fff', paddingHorizontal: 16, paddingTop: 12, paddingBottom: 12, fontSize: 16, maxHeight: 100 },
-  sendButton: { width: 44, height: 44, borderRadius: 22, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.3, shadowRadius: 4 },
-  sendButtonDisabled: { backgroundColor: '#333', opacity: 0.8 },
-  
-  previewListContainer: { marginBottom: 10, marginLeft: 0, maxHeight: 70 },
-  previewImage: { width: 60, height: 60, borderRadius: 12, borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)' },
-  removePreviewBtn: { position: 'absolute', top: -6, right: -6, backgroundColor: '#000', borderRadius: 10 },
+  attachButton: {
+    width: 44,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 22,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    marginRight: 8,
+  },
+  textInput: {
+    flex: 1,
+    color: '#fff',
+    fontSize: 16,
+    paddingTop: 12,
+    paddingBottom: 12,
+    paddingHorizontal: 8,
+    maxHeight: 120,
+  },
+  sendButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#fff', 
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 8,
+  },
+  sendButtonDisabled: {
+    backgroundColor: '#444',
+    opacity: 0.8,
+  },
 
+  // Preview
+  previewListContainer: { marginBottom: 12, marginLeft: 4, maxHeight: 70 },
+  previewImage: { width: 60, height: 60, borderRadius: 12, borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)' },
+  removePreviewBtn: { position: 'absolute', top: -6, right: -6, backgroundColor: '#000', borderRadius: 10, borderWidth: 1, borderColor: '#333' },
+
+  // Messages
   emptyContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', transform: [{ scaleY: -1 }], opacity: 0.5, marginTop: 100 },
   emptyIcon: { width: 80, height: 80, borderRadius: 40, backgroundColor: '#1a1a1a', alignItems: 'center', justifyContent: 'center', marginBottom: 16 },
   emptyText: { color: '#666', fontSize: 16, fontFamily: Fonts.rounded },
+  
   messageRow: { marginVertical: 8, flexDirection: 'row', alignItems: 'flex-end', maxWidth: '100%' },
   rowUser: { justifyContent: 'flex-end' },
   rowAi: { justifyContent: 'flex-start' },
-  bubble: { borderRadius: 20, padding: 12, maxWidth: '85%', overflow: 'hidden' },
+  
+  bubble: { borderRadius: 20, padding: 12, width: '100%', overflow: 'hidden' },
   bubbleUser: { backgroundColor: '#007AFF', borderBottomRightRadius: 4 },
   bubbleAi: { backgroundColor: '#262626', borderBottomLeftRadius: 4, marginLeft: 8 },
+  
   userText: { color: '#fff', fontSize: 16, lineHeight: 22 },
   
   messageImagesGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 8 },
   messageImage: { width: 200, height: 150, borderRadius: 12 },
   messageImageMulti: { width: 90, height: 90, borderRadius: 10 },
+  
   aiAvatar: { marginBottom: 4 },
   avatarGradient: { width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
 });
